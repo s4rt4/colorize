@@ -80,6 +80,14 @@ bisa dipilih "Ubuntu on Xorg").
 cd /tmp && tar xzf ~/colorize/dist/Colorize-*-linux-*.tar.gz && ./Colorize/install.sh
 ```
 
+- Build sengaja **tidak** membawa pustaka sistem (driver grafis, X11/xcb, Wayland,
+  fontconfig, D-Bus, glib) dan tidak membawa GTK. Lihat `HOST_LIBS` di
+  `packaging/colorize.spec`. Smoke test di CI berjalan *offscreen*, jadi pemuatan plugin
+  xcb/wayland baru teruji di sini. Bila aplikasi hasil build gagal start karena sebuah
+  `lib….so` tidak ditemukan:
+  - Pustaka sistem (misalnya `libxcb-icccm.so.4`): pasang paketnya lewat apt, lalu tambahkan
+    namanya ke daftar `apt install` di README (bagian *Linux*).
+  - Bukan pustaka sistem: hapus prefiksnya dari `HOST_LIBS`.
 - Colorize muncul di menu aplikasi dengan ikon. Buka dari menu.
 - Klik kanan sebuah PNG di file manager: "Open With" harus menawarkan Colorize, dan file terbuka.
 - `./Colorize/install.sh --uninstall` menghapus entri menu.
