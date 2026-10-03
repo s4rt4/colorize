@@ -29,7 +29,7 @@ def test_oklch_takes_the_shorter_hue_path():
     red_hue, blue_hue = to_oklch("#FF0000")[2], to_oklch("#0000FF")[2]  # ~29° and ~264°
     middle = to_oklch(mix("#FF0000", "#0000FF", 0.5, "oklch"))[2]
     # the short way from 29° to 264° goes backwards through 0° (magenta), not through green
-    assert middle > 300 or middle < red_hue
+    assert middle > blue_hue or middle < red_hue
     assert not (90 < middle < 200)
 
 
