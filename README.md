@@ -54,7 +54,9 @@ UI tests run headless (`QT_QPA_PLATFORM=offscreen`, set in `tests/conftest.py`).
 colorize/
   core/      color math, no Qt: hex/OKLCH, harmony rules, sRGB gamut mapping,
              NumPy OKLab renderer, k-means palette extraction, image loading (ICC -> sRGB),
-             WCAG 2.x / APCA contrast, color vision deficiency simulation
+             WCAG 2.x / APCA contrast, color vision deficiency simulation,
+             tint/shade scales, OKLab mixing, RYB wheel, CIEDE2000, CMYK preview,
+             color books, UI roles for mockups
   model/     Palette, Document (+ QUndoStack), AppState, HarmonyModel, undoable commands
   ui/        shell, panels, document canvas, preferences
     themes/  tokens (dark / gray / light), generated QSS, recolored SVG icons
@@ -112,6 +114,28 @@ Open an image (File › Open, Ctrl+Shift+O, or drop it on the window) to extract
   type, like Photoshop's color blindness proof. The eyedropper still reads the
   original colors.
 
+## Palette tools
+
+- **Scale** panel: a 50–950 tint/shade scale from one base color with even OKLCH
+  lightness; the base keeps its exact value. Export it with *Names: Scale (50 – 950)*
+  for `brand-50 … brand-950`.
+- **Gradient** panel: foreground → background mixed in OKLab (or OKLCH / sRGB, with an
+  sRGB comparison bar), steps to swatches, CSS `linear-gradient(90deg in oklab, …)`.
+- **Harmony** wheel: *Perceptual (OKLCH)* or *Artist (RYB)*, where complements are the
+  painter's red–green, yellow–purple and blue–orange.
+- **Libraries**: tags (filter and search), and *Similar* ranks saved palettes by how close
+  their colors are to the foreground.
+- **Print** panel: CMYK values through an ICC profile (Windows' SWOP, or load your own
+  such as Coated FOGRA39), the color the press reproduces, and dE2000 marks
+  (✓ ≤ 2, ~ ≤ 5, ⚠ > 5). *Use Print Colors* swaps the ⚠ ones for what prints.
+- **Match** panel: nearest named colors by CIEDE2000 for the foreground and each swatch.
+  Only CSS named colors ship (Pantone/RAL data is licensed); import your own `.ase`/`.gpl`
+  color books, names included.
+- **Mockup** (Palette › Preview Mockup, Ctrl+Shift+M): the palette on a landing page or
+  dashboard, live while you edit; roles are assigned automatically (lightest background,
+  readable dark text, most chromatic brand colors), can be shuffled or pinned, dark mode,
+  WCAG checks for every text pairing in the mockup, SVG/PNG export.
+
 ## Export
 
 The Export panel (File › Export…, Ctrl+Shift+E) previews the active palette live and
@@ -165,6 +189,7 @@ Rules: `core/` stays Qt-free; the UI never edits a Palette directly, only throug
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Ctrl+Shift+E | Export |
 | Ctrl+Alt+S | Save to library |
+| Ctrl+Shift+M | Preview mockup |
 | Space (hold) | Temporary Hand tool |
 | X / D | Swap / default foreground and background |
 | Tab | Show/hide all panels and bars |

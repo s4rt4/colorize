@@ -48,6 +48,7 @@ from colorize.ui.harmony_panel import HarmonyPanel
 from colorize.ui.image_view import ImageView
 from colorize.ui.library_panel import LibraryPanel
 from colorize.ui.match_panel import MatchPanel
+from colorize.ui.mockup_view import MockupView
 from colorize.ui.options_bar import OptionsBar
 from colorize.ui.panels import ColorPanel, HistoryPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
@@ -207,6 +208,8 @@ class MainWindow(QMainWindow):
             "replace_swatch": a("&Replace Swatch with Foreground", self._replace_swatch),
             "swatch_to_fg": a("Set Swatch as &Foreground", self._swatch_to_foreground),
             "rename_palette": a("Re&name Palette…", self._rename_palette),
+            "preview_mockup": a("Preview &Mockup", lambda: self.open_mockup(), "Ctrl+Shift+M",
+                                tip="See the palette applied to a sample UI"),
             "zoom_in": a("Zoom &In", lambda: self._with_view("zoom_in"), ["Ctrl+=", "Ctrl++"]),
             "zoom_out": a("Zoom &Out", lambda: self._with_view("zoom_out"), "Ctrl+-"),
             "fit": a("&Fit on Screen", lambda: self._with_view("fit"), "Ctrl+0"),
@@ -373,6 +376,7 @@ class MainWindow(QMainWindow):
         palette_menu.addActions([A["add_fg"], A["add_harmony"], A["replace_swatch"], A["swatch_to_fg"]])
         palette_menu.addSeparator()
         palette_menu.addAction(A["rename_palette"])
+        palette_menu.addAction(A["preview_mockup"])
         palette_menu.addAction(A["save_to_library"])
 
         view_menu = bar.addMenu("&View")
@@ -481,6 +485,9 @@ class MainWindow(QMainWindow):
         if widget is self._target_view:
             self._target_view = None
         if isinstance(widget, DocumentView):
+            for mockup in [w for w in self._tabs() if isinstance(w, MockupView) and w.document is widget.document]:
+                self.doc_tabs.removeTab(self.doc_tabs.indexOf(mockup))  # a mockup can't outlive its palette
+                mockup.deleteLater()
             self.undo_group.removeStack(widget.document.undo_stack)
             widget.document.deleteLater()
         widget.deleteLater()
@@ -508,11 +515,13 @@ class MainWindow(QMainWindow):
         index = self.doc_tabs.indexOf(view)
         if index < 0:
             return
+        star = ""
         if isinstance(view, DocumentView):
             star = "*" if view.document.is_modified else ""
             self.doc_tabs.setTabToolTip(index, view.document.path or "Not saved yet")
+        elif isinstance(view, MockupView):
+            self.doc_tabs.setTabToolTip(index, f"Live preview of “{view.document.palette.name}”")
         else:
-            star = ""
             self.doc_tabs.setTabToolTip(index, view.path)
         self.doc_tabs.setTabText(index, f"{view.title}{star} @ {round(view.zoom * 100)}%")
         if view is self.current_tab() or view is self._target_view:
@@ -523,7 +532,7 @@ class MainWindow(QMainWindow):
         tab = self.current_tab()
         image = self.current_image_view()
         has_selection = doc is not None and doc.selected >= 0
-        for key in ("add_fg", "add_harmony", "rename_palette", "save_to_library", "export"):
+        for key in ("add_fg", "add_harmony", "rename_palette", "save_to_library", "export", "preview_mockup"):
             self.actions[key].setEnabled(doc is not None)
         for key in ("save", "save_as"):
             self.actions[key].setEnabled(self.current_view() is not None)
@@ -533,7 +542,9 @@ class MainWindow(QMainWindow):
             self.actions[key].setEnabled(has_selection)
         self.setWindowTitle(f"{tab.title} — Colorize" if tab is not None else "Colorize")
         self.zoom_label.setText(f"{round(tab.zoom * 100)}%" if tab is not None else "")
-        if image is not None:
+        if isinstance(tab, MockupView):
+            self.info_label.setText(f"Mockup of “{tab.document.palette.name}” · updates as you edit the palette")
+        elif image is not None:
             text = image.info.text()
             if doc is not None:
                 text += f"  ·  adding to “{doc.palette.name}”"
@@ -563,7 +574,7 @@ class MainWindow(QMainWindow):
     def _find_tab(self, path: str):
         target = os.path.normcase(os.path.abspath(path))
         for widget in self._tabs():
-            own = widget.document.path if isinstance(widget, DocumentView) else widget.path
+            own = widget.document.path if isinstance(widget, DocumentView) else getattr(widget, "path", None)
             if own and os.path.normcase(os.path.abspath(own)) == target:
                 return widget
         return None
@@ -738,6 +749,22 @@ class MainWindow(QMainWindow):
             dock.toggleView(True)
         dock.setAsCurrentTab()
         return self.panels["export"].export_file()
+
+    def open_mockup(self, doc: Document | None = None) -> MockupView | None:
+        """Open (or focus) the live mockup tab of a palette."""
+        doc = doc or self.current_document()
+        if doc is None:
+            return None
+        for widget in self._tabs():
+            if isinstance(widget, MockupView) and widget.document is doc:
+                self.doc_tabs.setCurrentWidget(widget)
+                return widget
+        view = MockupView(doc, self.state, self.theme)
+        view.zoomChanged.connect(partial(self._update_tab, view))
+        doc.palette.renamed.connect(partial(self._update_tab, view))
+        self.doc_tabs.setCurrentIndex(self.doc_tabs.addTab(view, ""))
+        self._update_tab(view)
+        return view
 
     def sample_screen(self) -> None:
         self.screen_sampler.start(self.state.sample_size)
