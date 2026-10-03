@@ -160,6 +160,18 @@ def install_crash_handler(log_path: Path, smoke: bool) -> None:
     sys.excepthook = hook
 
 
+def exercise_lazy_features(window, app) -> None:
+    """Smoke test: run the parts that load on demand (SVG mockups, ICC transforms,
+    the CSS color book), which a frozen build could be missing. Errors propagate."""
+    window.open_mockup()
+    for key in ("print", "match"):
+        dock = window.docks[key]
+        dock.toggleView(True)
+        dock.setAsCurrentTab()
+        app.processEvents()
+    window.panels["match"].current_book()
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     profile_dir, smoke, files = parse_args(argv)
@@ -202,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
             line = f"Colorize {__version__} ready in {elapsed:.0f} ms after interpreter start"
             if since_start is not None:
                 line += f", {since_start:.0f} ms after process start"
+            exercise_lazy_features(window, app)  # after timing: these load on demand
+            line += "; mockup, print and match panels OK"
             log.info(line)
             # A windowed .exe has no stdout, so the build script reads this file instead.
             (profile.log.parent / "smoke-test.txt").write_text(line + "\n", encoding="utf-8")
