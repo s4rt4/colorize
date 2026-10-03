@@ -1,0 +1,5 @@
+PyQt6>=6.8
+PyQt6Ads>=4.4
+coloraide>=4.0
+pytest>=8
+pytest-qt>=4.4
