@@ -1,0 +1,111 @@
+"""Text exports: color lists, CSS custom properties, Tailwind v4/v3, W3C design tokens.
+
+Swatches have no names of their own, so every format names them
+``<prefix>-1``, ``<prefix>-2``, ... where the prefix defaults to the palette name.
+"""
+
+import json
+import math
+import re
+
+from coloraide import Color
+
+from colorize.core.color import format_oklch, hex_to_rgb, normalize_hex
+
+SYNTAXES = ("hex", "rgb", "hsl", "oklch")
+SYNTAX_LABELS = {"hex": "HEX", "rgb": "RGB", "hsl": "HSL", "oklch": "OKLCH"}
+
+
+def slugify(name: str, fallback: str = "color") -> str:
+    """CSS/JS-safe identifier: lowercase ASCII words joined by hyphens, never starting with a digit."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    if not slug:
+        return fallback
+    return f"c-{slug}" if slug[0].isdigit() else slug
+
+
+def format_color(hex_color: str, syntax: str) -> str:
+    """One color in CSS Color 4 syntax (space-separated functions)."""
+    hex_color = normalize_hex(hex_color)
+    if syntax == "hex":
+        return hex_color.lower()
+    if syntax == "rgb":
+        return "rgb({} {} {})".format(*hex_to_rgb(hex_color))
+    if syntax == "hsl":
+        hue, saturation, lightness = Color(hex_color).convert("hsl").coords(nans=False)
+        return f"hsl({_num(hue, 1)} {_num(saturation * 100, 1)}% {_num(lightness * 100, 1)}%)"
+    if syntax == "oklch":
+        return format_oklch(hex_color)
+    raise ValueError(f"unknown color syntax: {syntax!r}")
+
+
+def _num(value: float, decimals: int) -> str:
+    text = f"{value:.{decimals}f}".rstrip("0").rstrip(".")
+    return "0" if text in ("", "-0") else text
+
+
+def _names(prefix: str, count: int) -> list[str]:
+    return [f"{prefix}-{i + 1}" for i in range(count)]
+
+
+def color_list(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+    return "".join(format_color(c, syntax) + "\n" for c in colors)
+
+
+def css_variables(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+    lines = [f"/* {name} */", ":root {"]
+    lines += [f"  --{n}: {format_color(c, syntax)};" for n, c in zip(_names(prefix, len(colors)), colors)]
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def tailwind_v4(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+    """Tailwind CSS v4 theme variables: utilities like ``bg-<prefix>-1`` come for free."""
+    lines = [f"/* {name}: paste into your main CSS file after @import \"tailwindcss\"; */", "@theme {"]
+    lines += [f"  --color-{n}: {format_color(c, syntax)};" for n, c in zip(_names(prefix, len(colors)), colors)]
+    lines.append("}")
+    return "\n".join(lines) + "\n"
+
+
+def tailwind_v3(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+    """Tailwind CSS v3 ``tailwind.config.js`` extending the color palette."""
+    entries = "\n".join(f"          {i + 1}: '{format_color(c, syntax)}'," for i, c in enumerate(colors))
+    return (
+        f"/** {name} */\n"
+        "/** @type {import('tailwindcss').Config} */\n"
+        "module.exports = {\n"
+        "  theme: {\n"
+        "    extend: {\n"
+        "      colors: {\n"
+        f"        '{prefix}': {{\n"
+        f"{entries}\n"
+        "        },\n"
+        "      },\n"
+        "    },\n"
+        "  },\n"
+        "};\n"
+    )
+
+
+def design_tokens(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+    """W3C Design Tokens Format Module (2025.10) color tokens.
+
+    The value is the spec's color object (sRGB components plus the optional hex
+    fallback); the group carries ``$type`` so every token inherits it.
+    """
+    group = {"$type": "color", "$description": name}
+    for i, hex_color in enumerate(colors):
+        r, g, b = (c / 255 for c in hex_to_rgb(hex_color))
+        group[str(i + 1)] = {
+            "$value": {
+                "colorSpace": "srgb",
+                "components": [_round(r), _round(g), _round(b)],
+                "hex": normalize_hex(hex_color).lower(),
+            }
+        }
+    return json.dumps({prefix: group}, indent=2, ensure_ascii=False) + "\n"
+
+
+def _round(value: float) -> float:
+    rounded = round(value, 4)
+    return 0.0 if math.isclose(rounded, 0.0) else rounded

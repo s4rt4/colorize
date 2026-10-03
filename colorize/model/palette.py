@@ -78,6 +78,7 @@ class Document(QObject):
         palette.setParent(self)
         self.undo_stack = QUndoStack(self)
         self.path: str | None = None  # file it was opened from / saved to
+        self.library_id: int | None = None  # entry in the palette library, if saved there
         self._selected = -1
         # Bound methods, not lambdas: PyQt disconnects them when this object dies, and the
         # stack emits cleanChanged while it is being destroyed.

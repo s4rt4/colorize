@@ -5,9 +5,10 @@ from pathlib import Path
 
 from PyQt6.QtCore import QSettings, QStandardPaths
 from PyQt6.QtGui import QFont, QFontDatabase, QIcon
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from colorize import __version__
+from colorize.storage.library import Library, LibraryError
 from colorize.ui.main_window import MainWindow
 from colorize.ui.themes import DEFAULT_THEME, ThemeManager
 
@@ -39,6 +40,20 @@ def icon_cache_dir() -> Path:
     return Path(base) / "theme-icons"
 
 
+def library_path() -> Path:
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    return Path(base) / "library.sqlite"
+
+
+def open_library() -> Library:
+    try:
+        return Library(library_path())
+    except LibraryError as exc:
+        QMessageBox.critical(None, "Colorize", f"The palette library could not be opened:\n{exc}\n\n"
+                             "Colorize will use a temporary library for this session.")
+        return Library(":memory:")
+
+
 def set_windows_app_id() -> None:
     """Own taskbar identity on Windows, so the taskbar shows our icon, not python.exe's."""
     if sys.platform == "win32":
@@ -60,6 +75,9 @@ def main(argv: list[str] | None = None) -> int:
     theme = ThemeManager(app, icon_cache_dir())
     theme.apply(settings.value("ui/theme", DEFAULT_THEME, type=str))
 
-    window = MainWindow(theme, settings)
+    library = open_library()
+    window = MainWindow(theme, settings, library=library)
     window.show()
-    return app.exec()
+    code = app.exec()
+    library.close()
+    return code

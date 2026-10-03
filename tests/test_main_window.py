@@ -36,7 +36,7 @@ def test_custom_workspace_round_trip(window, monkeypatch):
     assert "Mine" in window.dock_manager.perspectiveNames()
     window._apply_workspace("essentials")
     window._open_custom_workspace("Mine")
-    assert open_panels(window) == {"swatches", "export", "color", "harmony"}
+    assert open_panels(window) == {p for group in WORKSPACES["palette"] for p in group}
     window._delete_workspace("Mine")
     assert "Mine" not in window.dock_manager.perspectiveNames()
 

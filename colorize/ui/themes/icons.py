@@ -44,6 +44,8 @@ ICONS = {
     ),
     "history": '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>',
     "export": '<path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 13v6h14v-6"/>',
+    "library": '<rect x="3.5" y="4" width="4.5" height="16" rx="1"/><rect x="9.5" y="4" width="4.5" height="16" rx="1"/>'
+    '<path d="M15.6 5.6l3.4-.9 3.4 14.6-3.4.9z"/>',
     # Commands and chrome
     "new": '<path d="M6 3.5h8l4 4v13H6z"/><path d="M14 3.5v4h4"/><path d="M12 11v6M9 14h6"/>',
     "plus": '<path d="M12 5v14M5 12h14"/>',

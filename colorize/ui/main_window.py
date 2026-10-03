@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSplitter,
     QStackedWidget,
     QTabWidget,
     QTextEdit,
@@ -30,7 +31,9 @@ from PyQt6.QtWidgets import (
 from colorize import __version__
 from colorize.core.color import format_oklch
 from colorize.core.image import IMAGE_SUFFIXES, ImageLoadError, load_image
-from colorize.formats import colorize_json
+from colorize.formats import IMPORT_SUFFIXES, colorize_json, import_palette
+from colorize.formats.swatch_files import SwatchFileError
+from colorize.storage.library import Library
 from colorize.model.app_state import AppState
 from colorize.model.harmony import HarmonyModel
 from colorize.model.palette import Document, Palette
@@ -39,10 +42,12 @@ from colorize.ui.color_picker import pick_color
 from colorize.ui.contrast_panel import ContrastPanel
 from colorize.ui.cvd_panel import CvdPanel
 from colorize.ui.document_view import DocumentView
+from colorize.ui.export_panel import ExportPanel
 from colorize.ui.harmony_panel import HarmonyPanel
 from colorize.ui.image_view import ImageView
+from colorize.ui.library_panel import LibraryPanel
 from colorize.ui.options_bar import OptionsBar
-from colorize.ui.panels import ColorPanel, HistoryPanel, PlaceholderPanel, SwatchesPanel
+from colorize.ui.panels import ColorPanel, HistoryPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
 from colorize.ui.screen_sampler import ScreenSampler
 from colorize.ui.themes import THEME_LABELS, THEME_ORDER
@@ -97,10 +102,11 @@ def configure_ads() -> None:
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, theme, settings, state: AppState | None = None, parent=None):
+    def __init__(self, theme, settings, state: AppState | None = None, library: Library | None = None, parent=None):
         super().__init__(parent)
         self.theme = theme
         self.settings = settings
+        self.library = library if library is not None else Library(":memory:")
         self.state = state or AppState(self)
         self.undo_group = QUndoGroup(self)
         self.harmony = HarmonyModel(parent=self)
@@ -127,6 +133,10 @@ class MainWindow(QMainWindow):
         self.state.proofChanged.connect(self._update_proof_ui)
         self.state.cvdChanged.connect(self._update_proof_ui)
         self.screen_sampler.picked.connect(self.state.set_foreground)
+        self.panels["library"].openRequested.connect(self.open_from_library)
+        self.panels["export"].exported.connect(
+            lambda path: self.statusBar().showMessage(f"Exported {path}", 4000)
+        )
         self.setAcceptDrops(True)
         self.theme.changed.connect(self._sync_theme_actions)
         self.theme.changed.connect(self._hide_panel_tab_icons)
@@ -167,6 +177,12 @@ class MainWindow(QMainWindow):
             "new": a("&New Palette", lambda: self.new_document(), SK.New, icon="new"),
             "open": a("&Open…", lambda: self.open_file(), SK.Open),
             "open_image": a("Open &Image…", lambda: self.open_image(), "Ctrl+Shift+O"),
+            "export": a("&Export…", self.export_palette, "Ctrl+Shift+E", tip="Export the active palette"),
+            "clear_recent": a("&Clear Recent Files", self._clear_recent),
+            "save_to_library": a("Save to &Library", self.save_to_library, "Ctrl+Alt+S", icon="plus",
+                                 tip="Save the active palette to the library"),
+            "import_files": a("Import Files…", self.import_files_to_library,
+                              tip="Add palette files (.json, .ase, .gpl) to the library"),
             "save": a("&Save", lambda: self.save_document(), SK.Save),
             "save_as": a("Save &As…", lambda: self.save_document(save_as=True), "Ctrl+Shift+S"),
             "close": a("&Close", lambda: self.close_document(), SK.Close),
@@ -253,17 +269,15 @@ class MainWindow(QMainWindow):
             "contrast": ContrastPanel(self.theme, self.state),
             "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
-            "export": PlaceholderPanel(
-                self.theme, "export", "Export", "M4",
-                "CSS variables, Tailwind v3/v4, W3C design tokens, ASE and GPL.",
-            ),
+            "export": ExportPanel(self.settings),
+            "library": LibraryPanel(self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"]),
         }
         titles = {
             "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "contrast": "Contrast",
-            "cvd": "Color Blindness", "history": "History", "export": "Export",
+            "cvd": "Color Blindness", "history": "History", "export": "Export", "library": "Libraries",
         }
         icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "contrast": "contrast",
-                 "cvd": "cvd", "history": "history", "export": "export"}
+                 "cvd": "cvd", "history": "history", "export": "export", "library": "library"}
         self.docks: dict[str, ads.CDockWidget] = {}
         for key, widget in self.panels.items():
             dock = ads.CDockWidget(self.dock_manager, titles[key])
@@ -322,8 +336,12 @@ class MainWindow(QMainWindow):
 
         file_menu = bar.addMenu("&File")
         file_menu.addActions([A["new"], A["open"], A["open_image"]])
+        self.recent_menu = file_menu.addMenu("Open &Recent")
+        self.recent_menu.aboutToShow.connect(self._rebuild_recent_menu)
         file_menu.addSeparator()
         file_menu.addActions([A["close"], A["save"], A["save_as"]])
+        file_menu.addSeparator()
+        file_menu.addAction(A["export"])
         file_menu.addSeparator()
         file_menu.addAction(A["exit"])
 
@@ -341,6 +359,7 @@ class MainWindow(QMainWindow):
         palette_menu.addActions([A["add_fg"], A["add_harmony"], A["replace_swatch"], A["swatch_to_fg"]])
         palette_menu.addSeparator()
         palette_menu.addAction(A["rename_palette"])
+        palette_menu.addAction(A["save_to_library"])
 
         view_menu = bar.addMenu("&View")
         view_menu.addActions([A["zoom_in"], A["zoom_out"], A["fit"], A["actual_size"]])
@@ -465,6 +484,7 @@ class MainWindow(QMainWindow):
         self.undo_group.setActiveStack(doc.undo_stack if doc else None)
         self.panels["swatches"].set_document(doc)
         self.panels["cvd"].set_document(doc)
+        self.panels["export"].set_document(doc)
         self.center.setCurrentIndex(0 if self.doc_tabs.count() else 1)
         self._refresh_document_ui()
 
@@ -487,7 +507,7 @@ class MainWindow(QMainWindow):
         tab = self.current_tab()
         image = self.current_image_view()
         has_selection = doc is not None and doc.selected >= 0
-        for key in ("add_fg", "add_harmony", "rename_palette"):
+        for key in ("add_fg", "add_harmony", "rename_palette", "save_to_library", "export"):
             self.actions[key].setEnabled(doc is not None)
         for key in ("save", "save_as"):
             self.actions[key].setEnabled(self.current_view() is not None)
@@ -541,13 +561,15 @@ class MainWindow(QMainWindow):
                 self,
                 "Open",
                 self._last_dir(),
-                f"All Supported (*{colorize_json.SUFFIX} {images});;{colorize_json.FILE_FILTER};;"
-                f"Images ({images});;All Files (*)",
+                f"All Supported (*{colorize_json.SUFFIX} *.ase *.gpl {images});;{colorize_json.FILE_FILTER};;"
+                f"Swatches (*.ase *.gpl);;Images ({images});;All Files (*)",
             )
             if not path:
                 return None
         if Path(path).suffix.lower() in IMAGE_SUFFIXES:
             return self.open_image(path)
+        if Path(path).suffix.lower() in (".ase", ".gpl"):
+            return self.import_swatch_file(path)
         existing = self._find_tab(path)
         if existing is not None:
             self.doc_tabs.setCurrentWidget(existing)
@@ -560,7 +582,21 @@ class MainWindow(QMainWindow):
         doc = self._add_document(Palette(name, colors))
         doc.path = str(Path(path))
         self._remember_dir(path)
+        self.library.add_recent(path)
         self._update_tab(self.current_view())
+        return doc
+
+    def import_swatch_file(self, path: str) -> Document | None:
+        """Open an .ase/.gpl as a new, unsaved palette (it is not our file format to save over)."""
+        try:
+            name, colors = import_palette(path)
+        except (OSError, SwatchFileError, colorize_json.PaletteFormatError) as exc:
+            QMessageBox.warning(self, "Import Swatches", f"Could not import “{Path(path).name}”:\n{exc}")
+            return None
+        doc = self._add_document(Palette(name))
+        doc.add_colors(colors, "Import Swatches")
+        self._remember_dir(path)
+        self.library.add_recent(path)
         return doc
 
     def open_image(self, path: str | None = None) -> ImageView | None:
@@ -585,6 +621,7 @@ class MainWindow(QMainWindow):
         self.doc_tabs.setCurrentIndex(self.doc_tabs.addTab(view, ""))
         self._update_tab(view)
         self._remember_dir(path)
+        self.library.add_recent(path)
         return view
 
     def _palette_from_colors(self, name: str, colors: list) -> Document:
@@ -600,12 +637,98 @@ class MainWindow(QMainWindow):
         doc.add_colors(colors, "Add Image Colors")
         self.statusBar().showMessage(f"Added {len(colors)} colors to “{doc.palette.name}”", 4000)
 
+    def _rebuild_recent_menu(self) -> None:
+        menu = self.recent_menu
+        menu.clear()
+        recent = self.library.recent_files()
+        for path in recent:
+            action = menu.addAction(Path(path).name)
+            action.setToolTip(path)
+            action.setStatusTip(path)
+            action.triggered.connect(partial(self._open_recent, path))
+        if not recent:
+            menu.addAction("No Recent Files").setEnabled(False)
+        menu.addSeparator()
+        menu.addAction(self.actions["clear_recent"])
+        self.actions["clear_recent"].setEnabled(bool(recent))
+
+    def _open_recent(self, path: str) -> None:
+        if not Path(path).exists():
+            QMessageBox.warning(self, "Open Recent", f"“{Path(path).name}” no longer exists:\n{path}")
+            self.library.remove_recent(path)
+            return
+        self.open_file(path)
+
+    def _clear_recent(self) -> None:
+        self.library.clear_recent()
+
+    # ---------------------------------------------------------------- library
+
+    def save_to_library(self) -> int | None:
+        """Store the active palette in the library (updating its entry if it has one).
+        A palette with no file counts as saved afterwards."""
+        doc = self.current_document()
+        if doc is None:
+            return None
+        name, colors = doc.palette.name, list(doc.palette.colors)
+        if doc.library_id is not None and self.library.get_palette(doc.library_id) is not None:
+            self.library.update_palette(doc.library_id, name, colors)
+        else:
+            doc.library_id = self.library.add_palette(name, colors)
+        if doc.path is None:
+            doc.undo_stack.setClean()
+        panel = self.panels["library"]
+        panel.refresh()
+        panel.select_id(doc.library_id)
+        self.statusBar().showMessage(f"Saved “{name}” to the library", 4000)
+        return doc.library_id
+
+    def open_from_library(self, palette) -> Document:
+        for view in self._palette_views():
+            if view.document.library_id == palette.id:
+                self.doc_tabs.setCurrentWidget(view)
+                return view.document
+        doc = self._add_document(Palette(palette.name, palette.colors))
+        doc.library_id = palette.id
+        return doc
+
+    def import_files_to_library(self, paths=None) -> int:
+        """Bulk-add palette files to the library; how saved JSON palettes move into SQLite."""
+        if paths is None:
+            paths, _ = QFileDialog.getOpenFileNames(
+                self, "Import Palettes to Library", self._last_dir(), "Palettes (*.json *.ase *.gpl)"
+            )
+        added, failed = 0, []
+        for path in paths:
+            try:
+                name, colors = import_palette(path)
+            except (OSError, UnicodeDecodeError, SwatchFileError, colorize_json.PaletteFormatError) as exc:
+                failed.append(f"{Path(path).name}: {exc}")
+                continue
+            self.library.add_palette(name, colors)
+            added += 1
+        if paths:
+            self._remember_dir(paths[0])
+        self.panels["library"].refresh()
+        if failed:
+            QMessageBox.warning(self, "Import Palettes", "Some files were skipped:\n" + "\n".join(failed))
+        if added:
+            self.statusBar().showMessage(f"Added {added} palette{'s' if added > 1 else ''} to the library", 4000)
+        return added
+
+    def export_palette(self) -> str | None:
+        dock = self.docks["export"]
+        if dock.isClosed():
+            dock.toggleView(True)
+        dock.setAsCurrentTab()
+        return self.panels["export"].export_file()
+
     def sample_screen(self) -> None:
         self.screen_sampler.start(self.state.sample_size)
 
     @staticmethod
     def _dropped_paths(mime) -> list[str]:
-        accepted = IMAGE_SUFFIXES + (colorize_json.SUFFIX,)
+        accepted = IMAGE_SUFFIXES + IMPORT_SUFFIXES
         return [
             url.toLocalFile()
             for url in mime.urls()
@@ -645,6 +768,7 @@ class MainWindow(QMainWindow):
         doc.path = str(Path(path))
         doc.undo_stack.setClean()
         self._remember_dir(path)
+        self.library.add_recent(path)
         for view in self._palette_views():
             if view.document is doc:
                 self._update_tab(view)
@@ -792,13 +916,26 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, partial(self._apply_panel_sizes, areas, WORKSPACE_HEIGHTS[key]))
 
     def _apply_panel_sizes(self, areas, heights) -> None:
+        """Panel column width and group heights. Splitters can still hold hidden areas left
+        over from the previous layout (closed panels), so only visible parts get space."""
         central = self.central_dock.dockAreaWidget()
-        sizes = self.dock_manager.splitterSizes(central)
-        if len(sizes) == 2 and sum(sizes) > PANEL_WIDTH * 2:
-            self.dock_manager.setSplitterSizes(central, [sum(sizes) - PANEL_WIDTH, PANEL_WIDTH])
-        if areas and len(self.dock_manager.splitterSizes(areas[0])) == len(heights):
-            total = sum(self.dock_manager.splitterSizes(areas[0]))
-            self.dock_manager.setSplitterSizes(areas[0], [round(total * h / sum(heights)) for h in heights])
+        row = central.parentWidget() if central is not None else None
+        if isinstance(row, QSplitter):
+            sizes = row.sizes()
+            others = [i for i in range(row.count()) if row.widget(i) is not central and not row.widget(i).isHidden()]
+            if others and sum(sizes) > PANEL_WIDTH * (len(others) + 1):
+                new = [0] * len(sizes)
+                for i in others:
+                    new[i] = PANEL_WIDTH
+                new[row.indexOf(central)] = sum(sizes) - PANEL_WIDTH * len(others)
+                row.setSizes(new)
+        column = areas[0].parentWidget() if areas else None
+        if isinstance(column, QSplitter) and column.orientation() == Qt.Orientation.Vertical:
+            weight = {id(area): h for area, h in zip(areas, heights)}
+            total = sum(column.sizes())
+            column.setSizes(
+                [round(total * weight.get(id(column.widget(i)), 0) / sum(heights)) for i in range(column.count())]
+            )
 
     def _after_layout_change(self, *_args) -> None:
         # Documents sit directly under the options bar, with no dock title bar (restored

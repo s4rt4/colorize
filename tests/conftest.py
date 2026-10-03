@@ -3,9 +3,23 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
-from PyQt6.QtCore import QSettings  # noqa: E402
+from PyQt6.QtCore import QCoreApplication, QEvent, QSettings  # noqa: E402
+from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from colorize.ui.themes import ThemeManager  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def destroy_leftover_widgets(qapp):
+    """Delete every top-level widget after each test. Closed-but-alive windows pile up
+    otherwise, and each theme change restyles all of them (seconds per test by the end)."""
+    yield
+    for widget in QApplication.topLevelWidgets():
+        if hasattr(widget, "ask_save_changes"):
+            widget.ask_save_changes = lambda doc: "discard"
+        widget.close()
+        widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture(scope="session")
