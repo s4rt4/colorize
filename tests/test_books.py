@@ -6,7 +6,7 @@ import pytest
 from colorize.core.books import BookColor, ColorBook, css_named_book, delta_e_2000_many
 from colorize.core.delta_e import delta_e_2000, hex_to_lab
 from colorize.formats import import_named_colors
-from colorize.formats.swatch_files import write_ase, write_gpl
+from colorize.formats.swatch_files import write_ase
 from colorize.storage.library import Library
 
 
