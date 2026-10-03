@@ -4,6 +4,17 @@
 
 Offline desktop color manager with an Adobe-style interface. Plan: `colorize-plan.md`.
 
+## User guide (Bahasa Indonesia)
+
+- [`docs/Panduan-Colorize.pdf`](docs/Panduan-Colorize.pdf): the app, for beginners (44 pages).
+- [`docs/Panduan-Colorize-Lengkap.pdf`](docs/Panduan-Colorize-Lengkap.pdf): full edition, adding color
+  theory for graphic designers, project recipes and reference appendices (99 pages).
+
+Rebuild with `.venv\Scripts\python -m pip install reportlab`, then
+`.venv\Scripts\python tools/make_guide.py [--lengkap] [--shots]`. Screenshots come from
+the real app (`tools/guide_shots.py`, nothing is shown on screen); diagram colors are
+computed by `colorize.core`.
+
 ## Setup
 
 `python` on this machine's PATH is Inkscape's bundled interpreter, so create the venv
