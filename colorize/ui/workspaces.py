@@ -5,17 +5,18 @@ Panels not listed are closed. User workspaces are stored as ADS perspectives.
 """
 
 PANEL_WIDTH = 290
+# At this width a tab group holds about three tabs; more scroll and cut off the first name.
 
 WORKSPACES = {
     "essentials": (
-        ("color", "swatches", "harmony", "scale"),
+        ("color", "swatches", "harmony"),
         ("contrast", "cvd"),
-        ("history", "export", "library", "gradient"),
+        ("history", "export", "library"),
     ),
     "palette": (
         ("swatches", "library", "export"),
-        ("color", "harmony", "scale", "gradient"),
-        ("print", "match"),
+        ("color", "harmony", "scale"),
+        ("gradient", "print", "match"),
     ),
     "accessibility": (
         ("contrast",),

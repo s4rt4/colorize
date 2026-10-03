@@ -6,6 +6,7 @@ from colorize.core.scale import SCALE_STEPS
 
 @pytest.fixture
 def scale(window, qtbot):
+    window.docks["scale"].toggleView(True)  # not in the startup (Essentials) workspace
     window.docks["scale"].setAsCurrentTab()
     panel = window.panels["scale"]
     qtbot.waitUntil(lambda: panel.strip.width() > 100)

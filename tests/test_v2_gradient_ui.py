@@ -5,6 +5,7 @@ from PyQt6.QtGui import QGuiApplication
 
 @pytest.fixture
 def gradient(window, qtbot):
+    window.docks["gradient"].toggleView(True)  # not in the startup (Essentials) workspace
     window.docks["gradient"].setAsCurrentTab()
     panel = window.panels["gradient"]
     qtbot.waitUntil(lambda: panel.steps.width() > 50)

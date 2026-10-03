@@ -195,3 +195,10 @@ def test_every_panel_survives_a_save_and_restore(qtbot, theme, settings, setting
     qtbot.addWidget(win2)
     win2.show()
     assert open_panels(win2) == set(win2.docks)
+
+
+def test_tab_groups_fit_the_panel_width():
+    """Four tabs in a 290 px column scroll and cut off the first tab's name."""
+    for name, groups in WORKSPACES.items():
+        for group in groups:
+            assert len(group) <= 3, (name, group)
