@@ -1,5 +1,5 @@
-from PyQt6.QtCore import QEvent, QPoint, Qt
-from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, Qt
+from PyQt6.QtGui import QCloseEvent, QKeyEvent
 from PyQt6.QtWidgets import QApplication
 
 from colorize.ui.main_window import MainWindow
@@ -202,3 +202,11 @@ def test_tab_groups_fit_the_panel_width():
     for name, groups in WORKSPACES.items():
         for group in groups:
             assert len(group) <= 3, (name, group)
+
+
+def test_closing_twice_is_harmless(qtbot, theme, settings):
+    win = MainWindow(theme, settings)
+    win.ask_save_changes = lambda doc: "discard"
+    assert win.close()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)  # the dock manager is gone now
+    win.closeEvent(QCloseEvent())  # what a later close() delivers on some platforms

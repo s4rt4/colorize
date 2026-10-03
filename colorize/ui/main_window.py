@@ -965,6 +965,8 @@ class MainWindow(QMainWindow):
     def _apply_panel_sizes(self, areas, heights) -> None:
         """Panel column width and group heights. Splitters can still hold hidden areas left
         over from the previous layout (closed panels), so only visible parts get space."""
+        if getattr(self, "_closed", False):  # queued before the window closed; docks are gone
+            return
         central = self.central_dock.dockAreaWidget()
         row = central.parentWidget() if central is not None else None
         if isinstance(row, QSplitter):
@@ -1194,12 +1196,18 @@ class MainWindow(QMainWindow):
         s.sync()
 
     def closeEvent(self, event) -> None:
+        if getattr(self, "_closed", False):
+            # A second close (e.g. a close() after the first one was accepted): the dock
+            # manager and its tabs may already be gone, and everything is saved.
+            event.accept()
+            return
         for doc in self.documents():
             if not self._confirm_discard(doc):
                 event.ignore()
                 return
         self.save_settings()
         QApplication.instance().removeEventFilter(self)
+        self._closed = True
         self.dock_manager.deleteLater()
         super().closeEvent(event)
 
