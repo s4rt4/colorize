@@ -9,6 +9,7 @@ dependencies = [
     "PyQt6>=6.8",
     "PyQt6Ads>=4.4",
     "coloraide>=4.0",
+    "numpy>=2.0",
 ]
 
 [project.optional-dependencies]

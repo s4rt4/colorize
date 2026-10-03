@@ -35,6 +35,7 @@ def window(qtbot, theme, settings):
     from colorize.ui.main_window import MainWindow
 
     win = MainWindow(theme, settings)
+    win.ask_save_changes = lambda doc: "discard"  # never block on the modal prompt
     qtbot.addWidget(win)
     win.show()
     qtbot.waitExposed(win)

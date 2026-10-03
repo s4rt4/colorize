@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from colorize.ui.harmony_panel import rule_combo
 from colorize.ui.tools import TOOLS
 
 
@@ -57,7 +58,7 @@ def _hint(text: str) -> QLabel:
 
 
 class OptionsBar(QWidget):
-    def __init__(self, theme, state, actions: dict, parent=None):
+    def __init__(self, theme, state, actions: dict, harmony, parent=None):
         super().__init__(parent)
         self._theme = theme
         self._tool = state.tool
@@ -91,10 +92,8 @@ class OptionsBar(QWidget):
             ),
             "harmony": _row(
                 "Rule:",
-                _disabled(
-                    _combo("Complementary", "Analogous", "Triadic", "Tetradic", "Split Complementary", "Monochromatic")
-                ),
-                _badge("M1"),
+                rule_combo(harmony),
+                _hint("Drag any handle on the Harmony wheel to rotate the set · click a result to make it the foreground"),
             ),
             "extract": _row("Colors:", _disabled(count), _badge("M2")),
             "contrast": _row(

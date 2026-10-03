@@ -159,6 +159,7 @@ def test_settings_persist_theme_workspace_and_layout(qtbot, theme, settings, set
     from PyQt6.QtCore import QSettings
 
     win = MainWindow(theme, settings)
+    win.ask_save_changes = lambda doc: "discard"
     qtbot.addWidget(win)
     win.show()
     theme.apply("light")
@@ -170,6 +171,7 @@ def test_settings_persist_theme_workspace_and_layout(qtbot, theme, settings, set
     reopened_settings = QSettings(settings_path, QSettings.Format.IniFormat)
     assert reopened_settings.value("ui/theme") == "light"
     win2 = MainWindow(theme, reopened_settings)
+    win2.ask_save_changes = lambda doc: "discard"
     qtbot.addWidget(win2)
     win2.show()
     assert win2._workspace == "accessibility"

@@ -1,6 +1,8 @@
 """Adobe-style application shell: menus, options bar, tools, dock panels, document tabs."""
 
+import os
 from functools import partial
+from pathlib import Path
 
 import PyQt6Ads as ads
 from PyQt6.QtCore import QEvent, QSize, Qt, QTimer
@@ -8,6 +10,7 @@ from PyQt6.QtGui import QAction, QActionGroup, QKeySequence, QUndoGroup
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
+    QFileDialog,
     QInputDialog,
     QLabel,
     QLineEdit,
@@ -26,16 +29,20 @@ from PyQt6.QtWidgets import (
 
 from colorize import __version__
 from colorize.core.color import format_oklch
+from colorize.formats import colorize_json
 from colorize.model.app_state import AppState
+from colorize.model.harmony import HarmonyModel
 from colorize.model.palette import Document, Palette
+from colorize.ui.color_picker import pick_color
 from colorize.ui.document_view import DocumentView
+from colorize.ui.harmony_panel import HarmonyPanel
 from colorize.ui.options_bar import OptionsBar
 from colorize.ui.panels import ColorPanel, HistoryPanel, PlaceholderPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
 from colorize.ui.themes import THEME_LABELS, THEME_ORDER
 from colorize.ui.tools import TOOL_LAYOUT, TOOLS
-from colorize.ui.widgets import ColorChip, ForegroundBackground, pick_color
-from colorize.ui.workspaces import CUSTOM_PREFIX, PANEL_WIDTH, WORKSPACE_LABELS, WORKSPACES
+from colorize.ui.widgets import ColorChip, ForegroundBackground
+from colorize.ui.workspaces import CUSTOM_PREFIX, PANEL_WIDTH, WORKSPACE_HEIGHTS, WORKSPACE_LABELS, WORKSPACES
 
 SAMPLE_COLORS = ("#1F3A5F", "#3D6A9E", "#7FB2E5", "#F2C14E", "#F78154", "#4D9078", "#B4436C", "#F2F2F2")
 
@@ -85,6 +92,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.state = state or AppState(self)
         self.undo_group = QUndoGroup(self)
+        self.harmony = HarmonyModel(parent=self)
         self._doc_counter = 0
         self._workspace = "essentials"
         self._hidden_snapshot = None  # (dock state, tools visible, options visible) while Tab-hidden
@@ -139,9 +147,9 @@ class MainWindow(QMainWindow):
         SK = QKeySequence.StandardKey
         self.actions = {
             "new": a("&New Palette", lambda: self.new_document(), SK.New, icon="new"),
-            "open": a("&Open…", shortcut=SK.Open, tip="Arrives in M1"),
-            "save": a("&Save", shortcut=SK.Save, tip="Arrives in M1"),
-            "save_as": a("Save &As…", shortcut="Ctrl+Shift+S", tip="Arrives in M1"),
+            "open": a("&Open…", lambda: self.open_file(), SK.Open),
+            "save": a("&Save", lambda: self.save_document(), SK.Save),
+            "save_as": a("Save &As…", lambda: self.save_document(save_as=True), "Ctrl+Shift+S"),
             "close": a("&Close", lambda: self.close_document(), SK.Close),
             "exit": a("E&xit", self.close, "Ctrl+Q"),
             "delete_swatch": a("&Delete Swatch", self._delete_swatch, SK.Delete, icon="trash", tip="Delete Swatch"),
@@ -150,6 +158,7 @@ class MainWindow(QMainWindow):
             "swap_colors": a("S&wap Colors", self.state.swap_colors, "X"),
             "default_colors": a("&Default Colors", self.state.reset_colors, "D"),
             "add_fg": a("&Add Foreground to Palette", self._add_foreground, icon="plus", tip="New Swatch from Foreground Color"),
+            "add_harmony": a("Add &Harmony to Palette", self._add_harmony),
             "replace_swatch": a("&Replace Swatch with Foreground", self._replace_swatch),
             "swatch_to_fg": a("Set Swatch as &Foreground", self._swatch_to_foreground),
             "rename_palette": a("Re&name Palette…", self._rename_palette),
@@ -165,8 +174,6 @@ class MainWindow(QMainWindow):
             "lighter": a("&Lighter Interface", lambda: self.theme.cycle(1), "Shift+F2"),
             "about": a("&About Colorize", self._show_about),
         }
-        for key in ("open", "save", "save_as"):
-            self.actions[key].setEnabled(False)
 
         self.undo_action = self.undo_group.createUndoAction(self, "&Undo")
         self.undo_action.setShortcuts(QKeySequence.keyBindings(SK.Undo))
@@ -219,10 +226,7 @@ class MainWindow(QMainWindow):
         self.panels = {
             "color": ColorPanel(self.theme, self.state, self.actions["add_fg"]),
             "swatches": SwatchesPanel(self.theme, self.actions["add_fg"], self.actions["delete_swatch"]),
-            "harmony": PlaceholderPanel(
-                self.theme, "harmony", "Harmony", "M1",
-                "OKLCH color wheel with complementary, analogous, triadic, tetradic, split and monochromatic rules.",
-            ),
+            "harmony": HarmonyPanel(self.theme, self.harmony, self.state, self.actions["add_harmony"]),
             "contrast": PlaceholderPanel(
                 self.theme, "contrast", "Contrast", "M3",
                 "WCAG 2.x and APCA contrast with lightness suggestions to pass AA/AAA.",
@@ -247,7 +251,8 @@ class MainWindow(QMainWindow):
         for key, widget in self.panels.items():
             dock = ads.CDockWidget(self.dock_manager, titles[key])
             dock.setObjectName(key)  # stable id for saved layouts
-            dock.setWidget(widget, ads.CDockWidget.eInsertMode.ForceNoScrollArea)
+            # AutoScrollArea: panels scroll when squeezed instead of overlapping their contents.
+            dock.setWidget(widget, ads.CDockWidget.eInsertMode.AutoScrollArea)
             dock.setMinimumSizeHintMode(ads.CDockWidget.eMinimumSizeHintMode.MinimumSizeHintFromDockWidget)
             self.theme.bind_icon(dock, icons[key])
             self.docks[key] = dock
@@ -273,7 +278,7 @@ class MainWindow(QMainWindow):
         self.options_bar = QToolBar("Options", self)
         self.options_bar.setObjectName("options")
         self.options_bar.setMovable(False)
-        self.options_bar.addWidget(OptionsBar(self.theme, self.state, self.actions))
+        self.options_bar.addWidget(OptionsBar(self.theme, self.state, self.actions, self.harmony))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self.options_bar)
 
         self.tools_bar = QToolBar("Tools", self)
@@ -312,7 +317,7 @@ class MainWindow(QMainWindow):
         color_menu.addActions([A["choose_fg"], A["swap_colors"], A["default_colors"]])
 
         palette_menu = bar.addMenu("&Palette")
-        palette_menu.addActions([A["add_fg"], A["replace_swatch"], A["swatch_to_fg"]])
+        palette_menu.addActions([A["add_fg"], A["add_harmony"], A["replace_swatch"], A["swatch_to_fg"]])
         palette_menu.addSeparator()
         palette_menu.addAction(A["rename_palette"])
 
@@ -366,7 +371,9 @@ class MainWindow(QMainWindow):
 
     def new_document(self, sample: bool = False) -> Document:
         self._doc_counter += 1
-        palette = Palette(f"Untitled-{self._doc_counter}", SAMPLE_COLORS if sample else ())
+        return self._add_document(Palette(f"Untitled-{self._doc_counter}", SAMPLE_COLORS if sample else ()))
+
+    def _add_document(self, palette: Palette) -> Document:
         doc = Document(palette, self)
         self.undo_group.addStack(doc.undo_stack)
 
@@ -385,18 +392,22 @@ class MainWindow(QMainWindow):
         self._on_document_edited(view)
         return doc
 
-    def close_document(self, index: int | None = None) -> None:
+    def close_document(self, index: int | None = None) -> bool:
+        """Close a tab, asking to save unsaved changes. Returns False if the user cancelled."""
         if index is None:
             index = self.doc_tabs.currentIndex()
         view = self.doc_tabs.widget(index)
         if not isinstance(view, DocumentView):
-            return
-        self.doc_tabs.removeTab(index)
+            return True
+        if not self._confirm_discard(view.document):
+            return False
+        self.doc_tabs.removeTab(self.doc_tabs.indexOf(view))
         if self.doc_tabs.count() == 0:
             self._on_current_document_changed(-1)
         self.undo_group.removeStack(view.document.undo_stack)
         view.deleteLater()
         view.document.deleteLater()
+        return True
 
     def _on_current_document_changed(self, _index: int) -> None:
         doc = self.current_document()
@@ -412,6 +423,7 @@ class MainWindow(QMainWindow):
         doc = view.document
         star = "*" if doc.is_modified else ""
         self.doc_tabs.setTabText(index, f"{doc.palette.name}{star} @ {round(view.zoom * 100)}%")
+        self.doc_tabs.setTabToolTip(index, doc.path or "Not saved yet")
         if view is self.current_view():
             self._refresh_document_ui()
 
@@ -420,7 +432,8 @@ class MainWindow(QMainWindow):
         view = self.current_view()
         has_doc = doc is not None
         has_selection = has_doc and doc.selected >= 0
-        for key in ("close", "add_fg", "rename_palette", "zoom_in", "zoom_out", "fit", "actual_size"):
+        for key in ("close", "save", "save_as", "add_fg", "add_harmony", "rename_palette",
+                    "zoom_in", "zoom_out", "fit", "actual_size"):
             self.actions[key].setEnabled(has_doc)
         for key in ("delete_swatch", "replace_swatch", "swatch_to_fg"):
             self.actions[key].setEnabled(has_selection)
@@ -439,6 +452,95 @@ class MainWindow(QMainWindow):
         view = self.current_view()
         if view:
             getattr(view, method)()
+
+    # ------------------------------------------------------------------ files
+
+    def _last_dir(self) -> str:
+        return self.settings.value("files/lastDir", str(Path.home()), type=str)
+
+    def _remember_dir(self, path: str) -> None:
+        self.settings.setValue("files/lastDir", str(Path(path).parent))
+
+    def open_file(self, path: str | None = None) -> Document | None:
+        if path is None:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Open Palette", self._last_dir(), f"{colorize_json.FILE_FILTER};;All Files (*)"
+            )
+            if not path:
+                return None
+        target = os.path.normcase(os.path.abspath(path))
+        for i in range(self.doc_tabs.count()):
+            doc = self.doc_tabs.widget(i).document
+            if doc.path and os.path.normcase(os.path.abspath(doc.path)) == target:
+                self.doc_tabs.setCurrentIndex(i)
+                return doc
+        try:
+            name, colors = colorize_json.loads(Path(path).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, colorize_json.PaletteFormatError) as exc:
+            QMessageBox.warning(self, "Open Palette", f"Could not open “{Path(path).name}”:\n{exc}")
+            return None
+        doc = self._add_document(Palette(name, colors))
+        doc.path = str(Path(path))
+        self._remember_dir(path)
+        self._on_document_edited(self.current_view())
+        return doc
+
+    def save_document(self, doc: Document | None = None, save_as: bool = False) -> bool:
+        """Save (or Save As). Returns False if cancelled or failed."""
+        doc = doc or self.current_document()
+        if doc is None:
+            return False
+        path = doc.path
+        if save_as or not path:
+            folder = os.path.dirname(path) if path else self._last_dir()
+            start = os.path.join(folder, f"{doc.palette.name}{colorize_json.SUFFIX}")
+            path, _ = QFileDialog.getSaveFileName(self, "Save Palette As", start, colorize_json.FILE_FILTER)
+            if not path:
+                return False
+            if not path.lower().endswith(colorize_json.SUFFIX):
+                path += colorize_json.SUFFIX
+        try:
+            _write_atomic(Path(path), colorize_json.dumps(doc.palette.name, doc.palette.colors))
+        except OSError as exc:
+            QMessageBox.warning(self, "Save Palette", f"Could not save “{Path(path).name}”:\n{exc}")
+            return False
+        doc.path = str(Path(path))
+        doc.undo_stack.setClean()
+        self._remember_dir(path)
+        for i in range(self.doc_tabs.count()):
+            if self.doc_tabs.widget(i).document is doc:
+                self._on_document_edited(self.doc_tabs.widget(i))
+        self.statusBar().showMessage(f"Saved {doc.path}", 4000)
+        return True
+
+    def ask_save_changes(self, doc: Document) -> str:
+        """'save', 'discard' or 'cancel'. A separate method so tests can answer it."""
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Colorize")
+        box.setText(f"Save changes to “{doc.palette.name}” before closing?")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        answer = box.exec()
+        if answer == QMessageBox.StandardButton.Save:
+            return "save"
+        if answer == QMessageBox.StandardButton.Discard:
+            return "discard"
+        return "cancel"
+
+    def _confirm_discard(self, doc: Document) -> bool:
+        """True when it is fine to drop ``doc``: unmodified, saved now, or discarded."""
+        if not doc.is_modified:
+            return True
+        for i in range(self.doc_tabs.count()):
+            if self.doc_tabs.widget(i).document is doc:
+                self.doc_tabs.setCurrentIndex(i)
+        answer = self.ask_save_changes(doc)
+        if answer == "save":
+            return self.save_document(doc)
+        return answer == "discard"
 
     # ----------------------------------------------------------- palette edits
 
@@ -470,8 +572,13 @@ class MainWindow(QMainWindow):
         if ok:
             doc.rename(name)
 
+    def _add_harmony(self) -> None:
+        doc = self.current_document()
+        if doc:
+            doc.add_colors(self.harmony.hexes(), "Add Harmony")
+
     def _choose_foreground(self) -> None:
-        color = pick_color(self, self.state.foreground, "Foreground Color")
+        color = pick_color(self.theme, self, self.state.foreground, "Foreground Color")
         if color:
             self.state.set_foreground(color)
 
@@ -486,6 +593,11 @@ class MainWindow(QMainWindow):
 
     def _on_tool_changed(self, key: str) -> None:
         self.tool_actions[key].setChecked(True)
+        if key == "harmony":
+            dock = self.docks["harmony"]
+            if dock.isClosed():
+                dock.toggleView(True)
+            dock.setAsCurrentTab()
 
     def eventFilter(self, obj, event):
         """Hold Space for the Hand tool, release to go back (Photoshop behavior)."""
@@ -516,6 +628,7 @@ class MainWindow(QMainWindow):
                 dock.setAutoHide(False)
         placed = set()
         previous = None
+        areas = []
         for group in WORKSPACES[key]:
             area = None
             for panel in group:
@@ -530,6 +643,7 @@ class MainWindow(QMainWindow):
                 dock.toggleView(True)
                 placed.add(panel)
             area.setCurrentIndex(0)
+            areas.append(area)
             previous = area
         for panel, dock in self.docks.items():
             if panel not in placed:
@@ -537,13 +651,16 @@ class MainWindow(QMainWindow):
         self._workspace = key
         self._rebuild_workspace_menu()
         self._after_layout_change()
-        QTimer.singleShot(0, self._apply_panel_width)
+        QTimer.singleShot(0, partial(self._apply_panel_sizes, areas, WORKSPACE_HEIGHTS[key]))
 
-    def _apply_panel_width(self) -> None:
-        area = self.central_dock.dockAreaWidget()
-        sizes = self.dock_manager.splitterSizes(area)
+    def _apply_panel_sizes(self, areas, heights) -> None:
+        central = self.central_dock.dockAreaWidget()
+        sizes = self.dock_manager.splitterSizes(central)
         if len(sizes) == 2 and sum(sizes) > PANEL_WIDTH * 2:
-            self.dock_manager.setSplitterSizes(area, [sum(sizes) - PANEL_WIDTH, PANEL_WIDTH])
+            self.dock_manager.setSplitterSizes(central, [sum(sizes) - PANEL_WIDTH, PANEL_WIDTH])
+        if areas and len(self.dock_manager.splitterSizes(areas[0])) == len(heights):
+            total = sum(self.dock_manager.splitterSizes(areas[0]))
+            self.dock_manager.setSplitterSizes(areas[0], [round(total * h / sum(heights)) for h in heights])
 
     def _after_layout_change(self, *_args) -> None:
         # Documents sit directly under the options bar, with no dock title bar (restored
@@ -745,7 +862,18 @@ class MainWindow(QMainWindow):
         s.sync()
 
     def closeEvent(self, event) -> None:
+        for doc in self.documents():
+            if not self._confirm_discard(doc):
+                event.ignore()
+                return
         self.save_settings()
         QApplication.instance().removeEventFilter(self)
         self.dock_manager.deleteLater()
         super().closeEvent(event)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Write to a temp file, then replace, so a failed save never truncates the old file."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8", newline="\n")
+    os.replace(tmp, path)

@@ -59,6 +59,8 @@ ICONS = {
     "chevron-up": '<path d="M6 15l6-6 6 6"/>',
     "chevron-right": '<path d="M9 6l6 6-6 6"/>',
     "check": '<path d="M5 12.5l4.5 4.5L19 7"/>',
+    "warning": '<path d="M12 3.5L21.5 20h-19z"/><path d="M12 10v4.5"/><path d="M12 17.2v.3"/>',
+    "target": '<circle cx="12" cy="12" r="3.5" fill="C"/><circle cx="12" cy="12" r="8"/>',
 }
 
 # Small glyphs used at 8-12 px need a heavier stroke to stay legible.

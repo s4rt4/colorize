@@ -21,7 +21,7 @@ _TOOL_LIST = (
     Tool("select", "Select", "select", "V"),
     None,
     Tool("eyedropper", "Eyedropper", "eyedropper", "I", "M2"),
-    Tool("harmony", "Harmony", "harmony", "W", "M1"),
+    Tool("harmony", "Harmony", "harmony", "W"),
     Tool("extract", "Extract from Image", "extract", "E", "M2"),
     None,
     Tool("contrast", "Contrast Check", "contrast", "C", "M3"),

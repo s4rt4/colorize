@@ -4,22 +4,10 @@ import math
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QColorDialog, QSizePolicy, QWidget
+from PyQt6.QtWidgets import QApplication, QSizePolicy, QWidget
 
-
-def paint_swatch(p: QPainter, rect: QRect, color, border) -> None:
-    """Bordered color square built from two fills, so the edge stays exact at
-    fractional display scaling (a 1px drawRect can leave a sliver of fill outside it)."""
-    p.fillRect(rect, QColor(border))
-    p.fillRect(rect.adjusted(1, 1, -1, -1), QColor(color))
-
-
-def pick_color(parent, initial: str, title: str) -> str | None:
-    """Non-native dialog so it follows the app theme. Returns ``#RRGGBB`` or None."""
-    color = QColorDialog.getColor(
-        QColor(initial), parent, title, QColorDialog.ColorDialogOption.DontUseNativeDialog
-    )
-    return color.name().upper() if color.isValid() else None
+from colorize.ui.color_picker import pick_color
+from colorize.ui.color_render import paint_swatch
 
 
 class ColorChip(QWidget):
@@ -311,10 +299,10 @@ class ForegroundBackground(QWidget):
         elif self._default.contains(pos):
             self._state.reset_colors()
         elif self._fg.contains(pos):
-            color = pick_color(self, self._state.foreground, "Foreground Color")
+            color = pick_color(self._theme, self, self._state.foreground, "Foreground Color")
             if color:
                 self._state.set_foreground(color)
         elif self._bg.contains(pos):
-            color = pick_color(self, self._state.background, "Background Color")
+            color = pick_color(self._theme, self, self._state.background, "Background Color")
             if color:
                 self._state.set_background(color)

@@ -77,6 +77,7 @@ class Document(QObject):
         self.palette = palette
         palette.setParent(self)
         self.undo_stack = QUndoStack(self)
+        self.path: str | None = None  # file it was opened from / saved to
         self._selected = -1
         # Bound methods, not lambdas: PyQt disconnects them when this object dies, and the
         # stack emits cleanChanged while it is being destroyed.
@@ -108,6 +109,16 @@ class Document(QObject):
         if index is None:
             index = len(self.palette)
         self.undo_stack.push(AddColorCommand(self, normalize_hex(color), index))
+
+    def add_colors(self, colors, text: str = "Add Swatches") -> None:
+        """Append several colors as one undo step."""
+        colors = [normalize_hex(c) for c in colors]
+        if not colors:
+            return
+        self.undo_stack.beginMacro(text)
+        for color in colors:
+            self.undo_stack.push(AddColorCommand(self, color, len(self.palette)))
+        self.undo_stack.endMacro()
 
     def remove_color(self, index: int) -> None:
         self.undo_stack.push(RemoveColorCommand(self, index))

@@ -30,13 +30,31 @@ UI tests run headless (`QT_QPA_PLATFORM=offscreen`, set in `tests/conftest.py`).
 
 ```
 colorize/
-  core/      color math, no Qt (hex/RGB/OKLCH so far)
-  model/     Palette, Document (+ QUndoStack), AppState, undoable commands
+  core/      color math, no Qt: hex/OKLCH, harmony rules, sRGB gamut mapping,
+             NumPy OKLab renderer for per-pixel fields
+  model/     Palette, Document (+ QUndoStack), AppState, HarmonyModel, undoable commands
   ui/        shell, panels, document canvas, preferences
     themes/  tokens (dark / gray / light), generated QSS, recolored SVG icons
     fonts/   Source Sans 3 (SIL OFL, license alongside)
-  formats/   import/export (M4)
+  formats/   palette files: native JSON (M1); ASE, GPL, CSS, Tailwind, tokens (M4)
   storage/   SQLite (M4)
+```
+
+## Color decisions
+
+- Harmony wheel: angle = OKLCH hue, radius = chroma, at the base color's lightness.
+  The dimmed part of the wheel is outside sRGB.
+- Out-of-gamut colors are mapped with CSS Color 4 style chroma reduction
+  (coloraide `oklch-chroma`) and flagged: dashed handles, ⚠ on swatches, a warning in
+  the color picker (click it to snap to the gamut edge).
+- Hue rules keep lightness and chroma; monochromatic steps lightness by 0.12.
+
+## Palette files
+
+`File › Save` writes UTF-8 JSON:
+
+```json
+{"format": "colorize.palette", "version": 1, "name": "Brand", "colors": [{"hex": "#3D6A9E"}]}
 ```
 
 Rules: `core/` stays Qt-free; the UI never edits a Palette directly, only through
