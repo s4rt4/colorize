@@ -1,7 +1,8 @@
 """Text exports: color lists, CSS custom properties, Tailwind v4/v3, W3C design tokens.
 
-Swatches have no names of their own, so every format names them
-``<prefix>-1``, ``<prefix>-2``, ... where the prefix defaults to the palette name.
+Swatches have no names of their own, so every format names them ``<prefix>-<key>``:
+keys are 1, 2, 3, ... or, for an 11-color tint/shade scale, 50, 100, ... 950.
+The prefix defaults to the palette name.
 """
 
 import json
@@ -9,6 +10,10 @@ import math
 import re
 
 from colorize.core.color import format_oklch, hex_to_rgb, normalize_hex
+
+SCALE_KEYS = ("50", "100", "200", "300", "400", "500", "600", "700", "800", "900", "950")
+NAMINGS = ("numbered", "scale")
+NAMING_LABELS = {"numbered": "Numbered (1, 2, 3…)", "scale": "Scale (50 – 950)"}
 
 SYNTAXES = ("hex", "rgb", "hsl", "oklch")
 SYNTAX_LABELS = {"hex": "HEX", "rgb": "RGB", "hsl": "HSL", "oklch": "OKLCH"}
@@ -44,32 +49,42 @@ def _num(value: float, decimals: int) -> str:
     return "0" if text in ("", "-0") else text
 
 
-def _names(prefix: str, count: int) -> list[str]:
-    return [f"{prefix}-{i + 1}" for i in range(count)]
+def swatch_keys(count: int, naming: str = "numbered") -> list[str]:
+    """Keys for swatch names; the scale naming only applies to exactly 11 colors."""
+    if naming == "scale" and count == len(SCALE_KEYS):
+        return list(SCALE_KEYS)
+    return [str(i + 1) for i in range(count)]
 
 
-def color_list(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+def _names(prefix: str, keys) -> list[str]:
+    return [f"{prefix}-{key}" for key in keys]
+
+
+def color_list(name: str, colors, prefix: str, syntax: str = "hex", naming: str = "numbered") -> str:
     return "".join(format_color(c, syntax) + "\n" for c in colors)
 
 
-def css_variables(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+def css_variables(name: str, colors, prefix: str, syntax: str = "hex", naming: str = "numbered") -> str:
     lines = [f"/* {name} */", ":root {"]
-    lines += [f"  --{n}: {format_color(c, syntax)};" for n, c in zip(_names(prefix, len(colors)), colors)]
+    names = _names(prefix, swatch_keys(len(colors), naming))
+    lines += [f"  --{n}: {format_color(c, syntax)};" for n, c in zip(names, colors)]
     lines.append("}")
     return "\n".join(lines) + "\n"
 
 
-def tailwind_v4(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+def tailwind_v4(name: str, colors, prefix: str, syntax: str = "hex", naming: str = "numbered") -> str:
     """Tailwind CSS v4 theme variables: utilities like ``bg-<prefix>-1`` come for free."""
     lines = [f"/* {name}: paste into your main CSS file after @import \"tailwindcss\"; */", "@theme {"]
-    lines += [f"  --color-{n}: {format_color(c, syntax)};" for n, c in zip(_names(prefix, len(colors)), colors)]
+    names = _names(prefix, swatch_keys(len(colors), naming))
+    lines += [f"  --color-{n}: {format_color(c, syntax)};" for n, c in zip(names, colors)]
     lines.append("}")
     return "\n".join(lines) + "\n"
 
 
-def tailwind_v3(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+def tailwind_v3(name: str, colors, prefix: str, syntax: str = "hex", naming: str = "numbered") -> str:
     """Tailwind CSS v3 ``tailwind.config.js`` extending the color palette."""
-    entries = "\n".join(f"          {i + 1}: '{format_color(c, syntax)}'," for i, c in enumerate(colors))
+    keys = swatch_keys(len(colors), naming)
+    entries = "\n".join(f"          {k}: '{format_color(c, syntax)}'," for k, c in zip(keys, colors))
     return (
         f"/** {name} */\n"
         "/** @type {import('tailwindcss').Config} */\n"
@@ -87,16 +102,16 @@ def tailwind_v3(name: str, colors, prefix: str, syntax: str = "hex") -> str:
     )
 
 
-def design_tokens(name: str, colors, prefix: str, syntax: str = "hex") -> str:
+def design_tokens(name: str, colors, prefix: str, syntax: str = "hex", naming: str = "numbered") -> str:
     """W3C Design Tokens Format Module (2025.10) color tokens.
 
     The value is the spec's color object (sRGB components plus the optional hex
     fallback); the group carries ``$type`` so every token inherits it.
     """
     group = {"$type": "color", "$description": name}
-    for i, hex_color in enumerate(colors):
+    for key, hex_color in zip(swatch_keys(len(colors), naming), colors):
         r, g, b = (c / 255 for c in hex_to_rgb(hex_color))
-        group[str(i + 1)] = {
+        group[key] = {
             "$value": {
                 "colorSpace": "srgb",
                 "components": [_round(r), _round(g), _round(b)],

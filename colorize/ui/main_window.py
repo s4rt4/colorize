@@ -49,6 +49,7 @@ from colorize.ui.library_panel import LibraryPanel
 from colorize.ui.options_bar import OptionsBar
 from colorize.ui.panels import ColorPanel, HistoryPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
+from colorize.ui.scale_panel import ScalePanel
 from colorize.ui.screen_sampler import ScreenSampler
 from colorize.ui.themes import THEME_LABELS, THEME_ORDER
 from colorize.ui.tools import TOOL_LAYOUT, TOOLS
@@ -134,6 +135,8 @@ class MainWindow(QMainWindow):
         self.state.cvdChanged.connect(self._update_proof_ui)
         self.screen_sampler.picked.connect(self.state.set_foreground)
         self.panels["library"].openRequested.connect(self.open_from_library)
+        self.panels["scale"].addRequested.connect(partial(self._add_colors_to_palette, label="Add Scale"))
+        self.panels["scale"].newPaletteRequested.connect(partial(self._palette_from_colors, label="New Scale"))
         self.panels["export"].exported.connect(
             lambda path: self.statusBar().showMessage(f"Exported {path}", 4000)
         )
@@ -266,6 +269,7 @@ class MainWindow(QMainWindow):
             "color": ColorPanel(self.theme, self.state, self.actions["add_fg"], self.actions["sample_screen"]),
             "swatches": SwatchesPanel(self.theme, self.actions["add_fg"], self.actions["delete_swatch"]),
             "harmony": HarmonyPanel(self.theme, self.harmony, self.state, self.actions["add_harmony"]),
+            "scale": ScalePanel(self.theme, self.state),
             "contrast": ContrastPanel(self.theme, self.state),
             "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
@@ -273,10 +277,10 @@ class MainWindow(QMainWindow):
             "library": LibraryPanel(self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"]),
         }
         titles = {
-            "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "contrast": "Contrast",
+            "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "scale": "Scale", "contrast": "Contrast",
             "cvd": "Color Blindness", "history": "History", "export": "Export", "library": "Libraries",
         }
-        icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "contrast": "contrast",
+        icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "scale": "scale", "contrast": "contrast",
                  "cvd": "cvd", "history": "history", "export": "export", "library": "library"}
         self.docks: dict[str, ads.CDockWidget] = {}
         for key, widget in self.panels.items():
@@ -624,17 +628,17 @@ class MainWindow(QMainWindow):
         self.library.add_recent(path)
         return view
 
-    def _palette_from_colors(self, name: str, colors: list) -> Document:
+    def _palette_from_colors(self, name: str, colors: list, label: str = "Extract from Image") -> Document:
         doc = self._add_document(Palette(name))
-        doc.add_colors(colors, "Extract from Image")  # undoable, and marks the palette unsaved
+        doc.add_colors(colors, label)  # undoable, and marks the palette unsaved
         return doc
 
-    def _add_colors_to_palette(self, colors: list) -> None:
+    def _add_colors_to_palette(self, colors: list, label: str = "Add Image Colors") -> None:
         doc = self.current_document()
         if doc is None:
             self._palette_from_colors("Untitled", colors)
             return
-        doc.add_colors(colors, "Add Image Colors")
+        doc.add_colors(colors, label)
         self.statusBar().showMessage(f"Added {len(colors)} colors to “{doc.palette.name}”", 4000)
 
     def _rebuild_recent_menu(self) -> None:

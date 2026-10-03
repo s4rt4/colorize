@@ -8,13 +8,13 @@ PANEL_WIDTH = 290
 
 WORKSPACES = {
     "essentials": (
-        ("color", "swatches", "harmony"),
+        ("color", "swatches", "harmony", "scale"),
         ("contrast", "cvd"),
         ("history", "export", "library"),
     ),
     "palette": (
         ("swatches", "library", "export"),
-        ("color", "harmony"),
+        ("color", "harmony", "scale"),
     ),
     "accessibility": (
         ("contrast",),

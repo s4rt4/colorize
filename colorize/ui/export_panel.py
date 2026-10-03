@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from colorize.formats import EXPORTERS
-from colorize.formats.text_formats import SYNTAX_LABELS, SYNTAXES, slugify
+from colorize.formats.text_formats import NAMING_LABELS, NAMINGS, SCALE_KEYS, SYNTAX_LABELS, SYNTAXES, slugify
 
 
 class ExportPanel(QWidget):
@@ -38,6 +38,10 @@ class ExportPanel(QWidget):
         for combo in (self.format, self.syntax):  # let the form shrink in a narrow dock
             combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
             combo.setMinimumContentsLength(8)
+        self.naming = QComboBox()
+        for naming in NAMINGS:
+            self.naming.addItem(NAMING_LABELS[naming], naming)
+        self.naming.setToolTip(f"Scale names need exactly {len(SCALE_KEYS)} colors, light to dark")
         self.prefix = QLineEdit()
         self.prefix.setToolTip("Swatch names become <prefix>-1, <prefix>-2, …")
         self._select(self.format, settings.value("export/format", "css", type=str))
@@ -48,6 +52,7 @@ class ExportPanel(QWidget):
         form.setVerticalSpacing(6)
         form.addRow("Format", self.format)
         form.addRow("Colors as", self.syntax)
+        form.addRow("Names", self.naming)
         form.addRow("Name prefix", self.prefix)
 
         self.preview = QPlainTextEdit()
@@ -76,6 +81,7 @@ class ExportPanel(QWidget):
 
         self.format.currentIndexChanged.connect(self._options_changed)
         self.syntax.currentIndexChanged.connect(self._options_changed)
+        self.naming.currentIndexChanged.connect(self.refresh)
         self.prefix.textChanged.connect(self.refresh)
         self.refresh()
 
@@ -109,7 +115,9 @@ class ExportPanel(QWidget):
 
     def render(self):
         palette = self._doc.palette
-        return self.exporter.render(palette.name, list(palette.colors), self.prefix_value(), self.syntax.currentData())
+        return self.exporter.render(
+            palette.name, list(palette.colors), self.prefix_value(), self.syntax.currentData(), self.naming.currentData()
+        )
 
     def _options_changed(self, *_args) -> None:
         self._settings.setValue("export/format", self.format.currentData())
@@ -120,6 +128,13 @@ class ExportPanel(QWidget):
         exporter = self.exporter
         self.syntax.setEnabled(exporter.uses_syntax)
         has_colors = self._doc is not None and len(self._doc.palette) > 0
+        is_scale = self._doc is not None and len(self._doc.palette) == len(SCALE_KEYS)
+        self.naming.model().item(NAMINGS.index("scale")).setEnabled(is_scale)
+        if not is_scale and self.naming.currentData() == "scale":
+            self.naming.setCurrentIndex(NAMINGS.index("numbered"))  # re-enters refresh
+            return
+        self.naming.setEnabled(exporter.uses_names)
+        self.prefix.setEnabled(exporter.uses_names)
         self.prefix.setPlaceholderText(self.prefix_value())
         self.copy_button.setEnabled(has_colors and not exporter.binary)
         self.export_button.setEnabled(has_colors)

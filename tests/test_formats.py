@@ -153,7 +153,7 @@ def test_gpl_rejects_other_text():
 
 def test_every_exporter_renders(tmp_path):
     for key, exporter in EXPORTERS.items():
-        out = exporter.render("Brand", COLORS, "brand", "hex")
+        out = exporter.render("Brand", COLORS, "brand", "hex", "numbered")
         assert isinstance(out, bytes if exporter.binary else str), key
         assert out
 
@@ -176,3 +176,16 @@ def test_import_falls_back_to_file_name(tmp_path):
     path = tmp_path / "Ocean Mood.gpl"
     path.write_text("GIMP Palette\n0 0 255\n", encoding="utf-8")
     assert import_palette(path) == ("Ocean Mood", ["#0000FF"])
+
+
+def test_scale_naming():
+    from colorize.core.scale import tint_shade_scale
+    from colorize.formats.text_formats import swatch_keys
+
+    scale = [s.hex for s in tint_shade_scale("#3D6A9E")]
+    css = css_variables("Blue", scale, "blue", naming="scale")
+    assert "  --blue-50: " in css and "  --blue-950: " in css and "--blue-1:" not in css
+    assert "--color-blue-500: " in tailwind_v4("Blue", scale, "blue", naming="scale")
+    assert "          950: '" in tailwind_v3("Blue", scale, "blue", naming="scale")
+    assert set(json.loads(design_tokens("Blue", scale, "blue", naming="scale"))["blue"]) >= {"50", "950"}
+    assert swatch_keys(4, "scale") == ["1", "2", "3", "4"]  # only 11 colors get scale keys

@@ -12,8 +12,9 @@ class Exporter:
     key: str
     label: str
     suffix: str
-    render: Callable  # (name, colors, prefix, syntax) -> str | bytes
+    render: Callable  # (name, colors, prefix, syntax, naming) -> str | bytes
     uses_syntax: bool = True  # whether the color syntax option applies
+    uses_names: bool = True  # whether swatch names (prefix + keys) appear in the output
     binary: bool = False
 
 
@@ -24,21 +25,23 @@ EXPORTERS = {
         Exporter("tailwind4", "Tailwind CSS v4 (@theme)", ".css", text_formats.tailwind_v4),
         Exporter("tailwind3", "Tailwind CSS v3 (config)", ".js", text_formats.tailwind_v3),
         Exporter("tokens", "Design Tokens (W3C DTCG JSON)", ".tokens.json", text_formats.design_tokens, uses_syntax=False),
-        Exporter("list", "Color List", ".txt", text_formats.color_list),
+        Exporter("list", "Color List", ".txt", text_formats.color_list, uses_names=False),
         Exporter(
             "ase",
             "Adobe Swatch Exchange (.ase)",
             ".ase",
-            lambda name, colors, prefix, syntax: swatch_files.write_ase(name, colors),
+            lambda name, colors, prefix, syntax, naming: swatch_files.write_ase(name, colors),
             uses_syntax=False,
+            uses_names=False,
             binary=True,
         ),
         Exporter(
             "gpl",
             "GIMP / Inkscape Palette (.gpl)",
             ".gpl",
-            lambda name, colors, prefix, syntax: swatch_files.write_gpl(name, colors),
+            lambda name, colors, prefix, syntax, naming: swatch_files.write_gpl(name, colors),
             uses_syntax=False,
+            uses_names=False,
         ),
     )
 }
