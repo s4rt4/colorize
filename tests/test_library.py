@@ -148,7 +148,7 @@ def test_version_1_library_upgrades_to_tags(tmp_path, monkeypatch):
     monkeypatch.undo()
 
     upgraded = Library(path)
-    assert upgraded.schema_version == SCHEMA_VERSION == 2
+    assert upgraded.schema_version == SCHEMA_VERSION  # v1 -> latest in one go
     palette = upgraded.palettes()[0]
     assert (palette.name, palette.colors, palette.tags) == ("From v1", ("#123456",), ())
     upgraded.set_tags(palette.id, ["kept"])

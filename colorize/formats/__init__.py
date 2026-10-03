@@ -49,6 +49,20 @@ EXPORTERS = {
 IMPORT_SUFFIXES = (colorize_json.SUFFIX, ".ase", ".gpl")
 
 
+def import_named_colors(path) -> tuple[str, list[tuple[str, str]]]:
+    """Read (book name, [(color name, hex)]) from .ase or .gpl; unnamed colors are
+    named by their hex. Used for color books (Pantone, RAL, ... exported by the user)."""
+    path = Path(path)
+    suffix = path.suffix.lower()
+    if suffix == ".ase":
+        name, entries = swatch_files.read_ase_named(path.read_bytes())
+    elif suffix == ".gpl":
+        name, entries = swatch_files.read_gpl_named(path.read_text(encoding="utf-8", errors="replace"))
+    else:
+        raise swatch_files.SwatchFileError(f"color books must be .ase or .gpl: {path.name}")
+    return name or path.stem, [(entry_name or hex_color, hex_color) for entry_name, hex_color in entries]
+
+
 def import_palette(path) -> tuple[str, list[str]]:
     """Read a palette from .json (native), .ase or .gpl. Name falls back to the file name."""
     path = Path(path)

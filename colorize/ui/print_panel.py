@@ -6,6 +6,7 @@ from PyQt6.QtCore import QRect, QSize, Qt
 from PyQt6.QtGui import QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
+    QHeaderView,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -64,6 +65,11 @@ class PrintPanel(QWidget):
         self.table.setHeaderLabels(["Color", "C M Y K %", "ΔE"])
         self.table.setIconSize(QSize(36, 18))
         self.table.setUniformRowHeights(True)
+        header = self.table.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for column in (1, 2):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
 
         self.summary = QLabel()
         self.summary.setWordWrap(True)
@@ -202,8 +208,6 @@ class PrintPanel(QWidget):
                 item.setToolTip(0, f"Prints as {match.print_hex}")
             item.setToolTip(2, "ΔE2000 between screen and print: ≤ 2 same color, 2–5 slight shift, > 5 noticeable")
             self.table.addTopLevelItem(item)
-        for column in range(3):
-            self.table.resizeColumnToContents(column)
         noticeable = [m for m in self.matches if m.shift == "noticeable"]
         self.fit_button.setEnabled(bool(noticeable))
         if not colors:

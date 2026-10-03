@@ -44,6 +44,22 @@ MIGRATIONS = (
     );
     CREATE INDEX palette_tags_tag ON palette_tags(tag);
     """,
+    # v3: color books (named reference colors, imported by the user)
+    """
+    CREATE TABLE color_books (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT '',
+        added TEXT NOT NULL
+    );
+    CREATE TABLE book_colors (
+        book_id INTEGER NOT NULL REFERENCES color_books(id) ON DELETE CASCADE,
+        position INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        hex TEXT NOT NULL,
+        PRIMARY KEY (book_id, position)
+    );
+    """,
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -229,6 +245,37 @@ class Library:
             )
         )
         return LibraryPalette(palette_id, name, colors, updated, tags)
+
+    # ----- color books -----
+
+    def add_book(self, name: str, entries, source: str = "") -> int:
+        """``entries``: [(color name, hex)]."""
+        rows = [(n, normalize_hex(h)) for n, h in entries]
+        with self._db:
+            book_id = self._db.execute(
+                "INSERT INTO color_books (name, source, added) VALUES (?, ?, ?)", (name, source, _now())
+            ).lastrowid
+            self._db.executemany(
+                "INSERT INTO book_colors (book_id, position, name, hex) VALUES (?, ?, ?, ?)",
+                [(book_id, i, n, h) for i, (n, h) in enumerate(rows)],
+            )
+        return book_id
+
+    def books(self) -> list[tuple[int, str, int]]:
+        """(id, name, number of colors), in the order they were added."""
+        rows = self._db.execute(
+            "SELECT b.id, b.name, COUNT(c.position) FROM color_books b "
+            "LEFT JOIN book_colors c ON c.book_id = b.id GROUP BY b.id ORDER BY b.id"
+        )
+        return [(book_id, name, count) for book_id, name, count in rows]
+
+    def book_colors(self, book_id: int) -> list[tuple[str, str]]:
+        rows = self._db.execute("SELECT name, hex FROM book_colors WHERE book_id = ? ORDER BY position", (book_id,))
+        return [(name, hex_color) for name, hex_color in rows]
+
+    def delete_book(self, book_id: int) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM color_books WHERE id = ?", (book_id,))
 
     # ----- recent files -----
 

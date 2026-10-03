@@ -71,6 +71,12 @@ def _model_to_hex(model: bytes, values: tuple) -> str:
 
 def read_ase(data: bytes) -> tuple[str, list[str]]:
     """Returns (first group name or "", colors). Groups are flattened."""
+    name, entries = read_ase_named(data)
+    return name, [hex_color for _, hex_color in entries]
+
+
+def read_ase_named(data: bytes) -> tuple[str, list[tuple[str, str]]]:
+    """(first group name or "", [(swatch name, hex)]). Groups are flattened."""
     if data[:4] != ASE_SIGNATURE:
         raise SwatchFileError("not an Adobe Swatch Exchange file")
     try:
@@ -83,14 +89,14 @@ def read_ase(data: bytes) -> tuple[str, list[str]]:
             if kind == _GROUP_START and not name:
                 name, _ = _read_name(data, offset)
             elif kind == _COLOR:
-                _, pos = _read_name(data, offset)
+                swatch_name, pos = _read_name(data, offset)
                 model = data[pos : pos + 4]
                 pos += 4
                 n = {b"RGB ": 3, b"LAB ": 3, b"CMYK": 4, b"Gray": 1}.get(model)
                 if n is None:
                     raise SwatchFileError(f"unsupported ASE color model {model!r}")
                 values = struct.unpack_from(f">{n}f", data, pos)
-                colors.append(_model_to_hex(model, values))
+                colors.append((swatch_name, _model_to_hex(model, values)))
             offset = body_end
     except struct.error as exc:
         raise SwatchFileError("truncated or damaged ASE file") from exc
@@ -109,6 +115,12 @@ def write_gpl(name: str, colors, columns: int = 8) -> str:
 
 
 def read_gpl(text: str) -> tuple[str, list[str]]:
+    name, entries = read_gpl_named(text)
+    return name, [hex_color for _, hex_color in entries]
+
+
+def read_gpl_named(text: str) -> tuple[str, list[tuple[str, str]]]:
+    """Like read_gpl, keeping each color's name (the text after R G B; may be empty)."""
     lines = text.splitlines()
     if not lines or lines[0].strip() != "GIMP Palette":
         raise SwatchFileError("not a GIMP palette (first line must be 'GIMP Palette')")
@@ -125,7 +137,7 @@ def read_gpl(text: str) -> tuple[str, list[str]]:
         parts = line.split(None, 3)
         try:
             r, g, b = (int(p) for p in parts[:3])
-            colors.append(rgb_to_hex(r, g, b))
+            colors.append((parts[3].strip() if len(parts) > 3 else "", rgb_to_hex(r, g, b)))
         except ValueError as exc:
             raise SwatchFileError(f"line {number}: expected 'R G B [name]'") from exc
     return name, colors

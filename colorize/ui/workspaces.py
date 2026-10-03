@@ -13,8 +13,9 @@ WORKSPACES = {
         ("history", "export", "library", "gradient"),
     ),
     "palette": (
-        ("swatches", "library", "export", "print"),
+        ("swatches", "library", "export"),
         ("color", "harmony", "scale", "gradient"),
+        ("print", "match"),
     ),
     "accessibility": (
         ("contrast",),
@@ -26,7 +27,7 @@ WORKSPACES = {
 # Relative heights of the tab groups above (same order).
 WORKSPACE_HEIGHTS = {
     "essentials": (52, 33, 15),
-    "palette": (45, 55),
+    "palette": (32, 43, 25),
     "accessibility": (48, 34, 18),
 }
 
