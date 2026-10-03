@@ -241,3 +241,59 @@ def test_sample_screen_action_sets_foreground(window, monkeypatch):
         type("E", (), {"button": lambda self: Qt.MouseButton.LeftButton, "position": lambda self: QPointF(5, 5)})()
     )
     assert window.state.foreground == "#ABCDEF"
+
+
+# --------------------------------------------------------- reorder / sort
+
+
+def test_drag_in_strip_reorders_colors_and_markers(window, image_view, qtbot):
+    window.state.set_extract_count(4)
+    image_view.extract()
+    colors, markers = image_view.colors, image_view.markers
+    strip = image_view.strip
+    start = strip.cell_rect(0).center()
+    end = QPoint(strip.width() - 2, start.y())
+    qtbot.mousePress(strip, Qt.MouseButton.LeftButton, pos=start)
+    qtbot.mouseMove(strip, start + QPoint(20, 0))
+    qtbot.mouseMove(strip, end)
+    qtbot.mouseRelease(strip, Qt.MouseButton.LeftButton, pos=end)
+    assert image_view.colors == colors[1:] + colors[:1]
+    assert image_view.markers == markers[1:] + markers[:1]
+    assert strip.colors == image_view.colors
+    assert window.state.foreground != colors[0]  # a drag is not a click
+
+
+def test_click_in_strip_sets_foreground(window, image_view, qtbot):
+    strip = image_view.strip
+    qtbot.mouseClick(strip, Qt.MouseButton.LeftButton, pos=strip.cell_rect(1).center())
+    assert window.state.foreground == image_view.colors[1]
+
+
+def test_sort_orders(window, image_view):
+    from colorize.core.color import to_oklch
+
+    window.state.set_extract_count(4)
+    image_view.extract()
+    image_view.sort("light")
+    lightness = [to_oklch(c)[0] for c in image_view.colors]
+    assert lightness == sorted(lightness, reverse=True)
+    image_view.sort("dark")
+    assert [to_oklch(c)[0] for c in image_view.colors] == sorted(lightness)
+    image_view.sort("common")
+    assert image_view.colors == list(BLOCKS)
+    image_view.sort("hue")
+    neutral = "#F1FAEE"  # near-white, sorted after the chromatic colors
+    assert image_view.colors[-1] == neutral
+    image_view.new_button.click()
+    assert list(window.current_document().palette.colors) == image_view.colors
+
+
+def test_most_common_disabled_after_manual_resample(window, image_view, qtbot):
+    window.tool_actions["select"].trigger()
+    assert image_view.sort_actions["common"].isEnabled()
+    start = image_view.marker_point(0).toPoint()
+    qtbot.mousePress(image_view.canvas, Qt.MouseButton.LeftButton, pos=start)
+    qtbot.mouseMove(image_view.canvas, start + QPoint(3, 3))
+    qtbot.mouseRelease(image_view.canvas, Qt.MouseButton.LeftButton, pos=start + QPoint(3, 3))
+    assert not image_view.sort_actions["common"].isEnabled()
+    image_view.sort("light")  # other sorts still work without shares

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -22,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from colorize.core.color import to_oklch
 from colorize.core.extract import average_color, extract_palette
 from colorize.core.image import LoadedImage, pixel_block, sample_pixels
 from colorize.model.app_state import EXTRACT_COUNT_RANGE
@@ -31,6 +33,29 @@ from colorize.ui.widgets import ColorStrip
 ZOOM_STEPS = (0.05, 0.1, 0.25, 0.33, 0.5, 0.67, 1.0, 1.5, 2.0, 3.0, 4.0, 8.0)
 MARKER_RADIUS = 9
 EXTRACT_DEBOUNCE_MS = 150
+NEUTRAL_CHROMA = 0.03  # below this a color has no meaningful hue; Hue sort puts these last
+
+SORTS = {
+    "common": "Most Common",
+    "light": "Light → Dark",
+    "dark": "Dark → Light",
+    "hue": "Hue",
+    "chroma": "Most Vivid First",
+}
+
+
+def sort_key(order: str, hex_color: str, share: float):
+    lightness, chroma, hue = to_oklch(hex_color)
+    if order == "common":
+        return -share
+    if order == "light":
+        return -lightness
+    if order == "dark":
+        return lightness
+    if order == "chroma":
+        return -chroma
+    # hue: chromatic colors around the wheel, then neutrals light to dark
+    return (1, -lightness) if chroma < NEUTRAL_CHROMA else (0, hue)
 
 
 def to_qimage(image: LoadedImage) -> QImage:
@@ -90,8 +115,9 @@ class ImageView(QWidget):
         self.scroll.viewport().installEventFilter(self)
         self._navigator = CanvasNavigator(self.scroll, self.canvas, state, self.zoom_in, self.zoom_out)
 
-        self.strip = ColorStrip(theme, 36)
+        self.strip = ColorStrip(theme, 36, reorderable=True)
         self.strip.colorClicked.connect(state.set_foreground)
+        self.strip.moved.connect(self.move_color)
         self.count = QSpinBox()
         self.count.setRange(*EXTRACT_COUNT_RANGE)
         self.count.setValue(state.extract_count)
@@ -104,6 +130,15 @@ class ImageView(QWidget):
         self.new_button.clicked.connect(
             lambda: self.createPaletteRequested.emit(Path(self.path).stem, self.colors)
         )
+        self.sort_button = QPushButton("Sort")
+        self.sort_button.setToolTip("Reorder the colors (or drag them in the strip)")
+        self.sort_menu = QMenu(self.sort_button)
+        self.sort_actions = {}
+        for key, label in SORTS.items():
+            action = self.sort_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, k=key: self.sort(k))
+            self.sort_actions[key] = action
+        self.sort_button.setMenu(self.sort_menu)
         self.add_button = QPushButton("Add to Swatches")
         self.add_button.setToolTip("Add these colors to the active palette")
         self.add_button.clicked.connect(lambda: self.addToPaletteRequested.emit(self.colors))
@@ -116,6 +151,7 @@ class ImageView(QWidget):
         controls.addWidget(self.count)
         controls.addSpacing(8)
         controls.addWidget(self.info, 1)
+        controls.addWidget(self.sort_button)
         controls.addWidget(self.add_button)
         controls.addWidget(self.new_button)
         footer_layout = QVBoxLayout(footer)
@@ -171,6 +207,24 @@ class ImageView(QWidget):
         self._markers = [QPointF(*self._positions[c.sample_index]) for c in results]
         self._refresh_colors()
 
+    def move_color(self, src: int, dst: int) -> None:
+        """Move one extracted color (with its marker and share) to position ``dst``."""
+        order = list(range(len(self._colors)))
+        order.insert(dst, order.pop(src))
+        self._apply_order(order)
+
+    def sort(self, order: str) -> None:
+        shares = self._shares or [0.0] * len(self._colors)
+        indices = sorted(range(len(self._colors)), key=lambda i: sort_key(order, self._colors[i], shares[i]))
+        self._apply_order(indices)
+
+    def _apply_order(self, order: list[int]) -> None:
+        self._colors = [self._colors[i] for i in order]
+        self._markers = [self._markers[i] for i in order]
+        if self._shares:
+            self._shares = [self._shares[i] for i in order]
+        self._refresh_colors()
+
     def _on_count_changed(self, count: int) -> None:
         self.count.blockSignals(True)
         self.count.setValue(count)
@@ -182,6 +236,9 @@ class ImageView(QWidget):
         enabled = bool(self._colors)
         self.new_button.setEnabled(enabled)
         self.add_button.setEnabled(enabled)
+        self.sort_button.setEnabled(len(self._colors) > 1)
+        # Shares are gone once a marker was dragged, so "Most Common" means nothing then.
+        self.sort_actions["common"].setEnabled(bool(self._shares))
         self.canvas.update()
         self.colorsChanged.emit()
 

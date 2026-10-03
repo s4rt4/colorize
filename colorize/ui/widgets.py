@@ -309,16 +309,22 @@ class ForegroundBackground(QWidget):
 
 
 class ColorStrip(QWidget):
-    """Row of equal-width color cells; click one to emit it. Optional per-color shares
-    are shown in the tooltip (e.g. how much of an image a color covers)."""
+    """Row of equal-width color cells. Click one to emit it; with ``reorderable``, drag
+    a cell sideways to move it (emits ``moved``; the owner applies the new order).
+    Optional per-color shares are shown in the tooltip."""
 
     colorClicked = pyqtSignal(str)
+    moved = pyqtSignal(int, int)  # from index, to index (final position)
 
-    def __init__(self, theme, height: int = 40, parent=None):
+    def __init__(self, theme, height: int = 40, reorderable: bool = False, parent=None):
         super().__init__(parent)
         self._theme = theme
         self._colors: list[str] = []
         self._shares: list[float] = []
+        self._reorderable = reorderable
+        self._press_index = -1
+        self._press_x = 0.0
+        self._drop_index: int | None = None  # insertion point 0..n while dragging
         self.setFixedHeight(height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         theme.changed.connect(self.update)
@@ -343,17 +349,53 @@ class ColorStrip(QWidget):
             return -1
         return max(0, min(int(x / max(self.width(), 1) * len(self._colors)), len(self._colors) - 1))
 
+    def drop_index_at(self, x: float) -> int:
+        n = len(self._colors)
+        return max(0, min(round(x / max(self.width(), 1) * n), n))
+
     def paintEvent(self, _event):
         p = QPainter(self)
         p.fillRect(self.rect(), self._theme.color("bg_panel"))
         border = self._theme.color("border_input")
         for i, color in enumerate(self._colors):
-            paint_swatch(p, self.cell_rect(i), color, border)
+            rect = self.cell_rect(i)
+            if self._drop_index is not None and i == self._press_index:
+                rect = rect.adjusted(0, 4, 0, -4)  # the cell being dragged sinks a little
+            paint_swatch(p, rect, color, border)
+        if self._drop_index is not None:
+            n = len(self._colors)
+            x = self.cell_rect(self._drop_index).left() if self._drop_index < n else self.width() - 2
+            p.fillRect(QRect(max(0, x - 1), 0, 3, self.height()), self._theme.color("accent"))
 
     def mousePressEvent(self, event):
-        index = self.index_at(event.position().x())
-        if event.button() == Qt.MouseButton.LeftButton and index >= 0:
-            self.colorClicked.emit(self._colors[index])
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        self._press_index = self.index_at(event.position().x())
+        self._press_x = event.position().x()
+
+    def mouseMoveEvent(self, event):
+        if not self._reorderable or self._press_index < 0 or not event.buttons() & Qt.MouseButton.LeftButton:
+            return
+        x = event.position().x()
+        if self._drop_index is None and abs(x - self._press_x) < QApplication.startDragDistance():
+            return
+        self._drop_index = self.drop_index_at(x)
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        self.update()
+
+    def mouseReleaseEvent(self, event):
+        src, target = self._press_index, self._drop_index
+        self._press_index, self._drop_index = -1, None
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.update()
+        if src < 0 or event.button() != Qt.MouseButton.LeftButton:
+            return
+        if target is None:
+            self.colorClicked.emit(self._colors[src])
+            return
+        dst = target - 1 if target > src else target
+        if dst != src:
+            self.moved.emit(src, dst)
 
     def event(self, event):
         if event.type() == event.Type.ToolTip:
@@ -362,6 +404,8 @@ class ColorStrip(QWidget):
                 text = self._colors[index]
                 if index < len(self._shares):
                     text += f"  ·  {self._shares[index] * 100:.0f}% of the image"
+                if self._reorderable:
+                    text += "\nClick: set as foreground · Drag: reorder"
                 QToolTip.showText(event.globalPos(), text, self)
             return True
         return super().event(event)
