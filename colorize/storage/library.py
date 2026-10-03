@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from colorize.core.color import normalize_hex
+from colorize.core.color import hex_to_rgb, linear_srgb_to_oklab, normalize_hex, srgb_to_linear
 
 RECENT_LIMIT = 10
 
@@ -35,6 +35,15 @@ MIGRATIONS = (
         opened TEXT NOT NULL
     );
     """,
+    # v2: tags
+    """
+    CREATE TABLE palette_tags (
+        palette_id INTEGER NOT NULL REFERENCES palettes(id) ON DELETE CASCADE,
+        tag TEXT NOT NULL COLLATE NOCASE,
+        PRIMARY KEY (palette_id, tag)
+    );
+    CREATE INDEX palette_tags_tag ON palette_tags(tag);
+    """,
 )
 SCHEMA_VERSION = len(MIGRATIONS)
 
@@ -45,6 +54,29 @@ class LibraryPalette:
     name: str
     colors: tuple[str, ...]
     updated: str
+    tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SimilarPalette:
+    palette: LibraryPalette
+    distance: float  # OKLab distance of its closest color to the query (x100 reads like ΔE)
+    closest: str  # that color
+
+
+def normalize_tags(tags) -> list[str]:
+    """Trim, drop empties and case-insensitive duplicates, keep first spelling and order."""
+    seen, result = set(), []
+    for tag in tags:
+        tag = " ".join(str(tag).split())
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            result.append(tag)
+    return result
+
+
+def _oklab(hex_color: str) -> tuple[float, float, float]:
+    return linear_srgb_to_oklab(*(srgb_to_linear(c / 255) for c in hex_to_rgb(hex_color)))
 
 
 def _now() -> str:
@@ -82,7 +114,7 @@ class Library:
 
     # ----- palettes -----
 
-    def add_palette(self, name: str, colors) -> int:
+    def add_palette(self, name: str, colors, tags=()) -> int:
         colors = [normalize_hex(c) for c in colors]
         stamp = _now()
         with self._db:
@@ -91,7 +123,42 @@ class Library:
             )
             palette_id = cursor.lastrowid
             self._write_colors(palette_id, colors)
+            self._write_tags(palette_id, tags)
         return palette_id
+
+    # ----- tags -----
+
+    def set_tags(self, palette_id: int, tags) -> None:
+        with self._db:
+            self._db.execute("DELETE FROM palette_tags WHERE palette_id = ?", (palette_id,))
+            self._write_tags(palette_id, tags)
+
+    def _write_tags(self, palette_id: int, tags) -> None:
+        self._db.executemany(
+            "INSERT INTO palette_tags (palette_id, tag) VALUES (?, ?)",
+            [(palette_id, tag) for tag in normalize_tags(tags)],
+        )
+
+    def all_tags(self) -> list[tuple[str, int]]:
+        """(tag, number of palettes), most used first."""
+        rows = self._db.execute(
+            "SELECT MIN(tag), COUNT(*) FROM palette_tags GROUP BY tag ORDER BY COUNT(*) DESC, MIN(tag) COLLATE NOCASE"
+        )
+        return [(tag, count) for tag, count in rows]
+
+    # ----- similar colors -----
+
+    def similar_palettes(self, color: str, limit: int = 50, max_distance: float = 0.12) -> list[SimilarPalette]:
+        """Palettes holding a color close to ``color`` (OKLab distance), closest first."""
+        target = _oklab(normalize_hex(color))
+        best: dict[int, tuple[float, str]] = {}
+        for palette_id, hex_color in self._db.execute("SELECT palette_id, hex FROM palette_colors"):
+            lab = _oklab(hex_color)
+            distance = sum((x - y) ** 2 for x, y in zip(lab, target)) ** 0.5
+            if distance <= max_distance and (palette_id not in best or distance < best[palette_id][0]):
+                best[palette_id] = (distance, hex_color)
+        ranked = sorted(best.items(), key=lambda item: (item[1][0], -item[0]))[:limit]
+        return [SimilarPalette(self.get_palette(pid), distance, hex_color) for pid, (distance, hex_color) in ranked]
 
     def update_palette(self, palette_id: int, name: str, colors) -> None:
         colors = [normalize_hex(c) for c in colors]
@@ -122,13 +189,18 @@ class Library:
         row = self._db.execute("SELECT id, name, updated FROM palettes WHERE id = ?", (palette_id,)).fetchone()
         return self._palette(row) if row else None
 
-    def palettes(self, search: str = "") -> list[LibraryPalette]:
-        """Newest first; ``search`` matches the name (case-insensitive) or an exact hex."""
+    def palettes(self, search: str = "", tag: str | None = None) -> list[LibraryPalette]:
+        """Newest first; ``search`` matches the name, a tag (case-insensitive) or an exact
+        hex; ``tag`` keeps only palettes carrying that tag."""
         query = "SELECT id, name, updated FROM palettes"
-        params: tuple = ()
+        conditions, params = [], []
+        if tag:
+            conditions.append("id IN (SELECT palette_id FROM palette_tags WHERE tag = ?)")
+            params.append(tag)
         if search:
-            query += (
-                " WHERE name LIKE ? ESCAPE '\\' OR id IN (SELECT palette_id FROM palette_colors WHERE hex = ?)"
+            conditions.append(
+                "(name LIKE ? ESCAPE '\\' OR id IN (SELECT palette_id FROM palette_colors WHERE hex = ?)"
+                " OR id IN (SELECT palette_id FROM palette_tags WHERE tag LIKE ? ESCAPE '\\'))"
             )
             pattern = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             hex_match = ""
@@ -136,7 +208,9 @@ class Library:
                 hex_match = normalize_hex(search)
             except ValueError:
                 pass
-            params = (pattern, hex_match)
+            params += [pattern, hex_match, pattern]
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
         query += " ORDER BY updated DESC, id DESC"
         return [self._palette(row) for row in self._db.execute(query, params).fetchall()]
 
@@ -148,7 +222,13 @@ class Library:
                 "SELECT hex FROM palette_colors WHERE palette_id = ? ORDER BY position", (palette_id,)
             )
         )
-        return LibraryPalette(palette_id, name, colors, updated)
+        tags = tuple(
+            tag
+            for (tag,) in self._db.execute(
+                "SELECT tag FROM palette_tags WHERE palette_id = ? ORDER BY rowid", (palette_id,)
+            )
+        )
+        return LibraryPalette(palette_id, name, colors, updated, tags)
 
     # ----- recent files -----
 

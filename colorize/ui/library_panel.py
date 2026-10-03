@@ -1,8 +1,10 @@
-"""Libraries panel: saved palettes in the SQLite library, searchable, one strip each."""
+"""Libraries panel: saved palettes in the SQLite library, searchable, filterable by tag,
+or ranked by how close their colors are to the foreground color."""
 
 from PyQt6.QtCore import QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QPainter
 from PyQt6.QtWidgets import (
+    QComboBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -21,10 +23,11 @@ from PyQt6.QtWidgets import (
 from colorize.ui.color_render import paint_swatch
 
 _PALETTE_ROLE = Qt.ItemDataRole.UserRole
+_DISTANCE_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class _PaletteDelegate(QStyledItemDelegate):
-    """Name above a strip of the palette's colors."""
+    """Name (and tags) above a strip of the palette's colors."""
 
     ROW_HEIGHT = 50
 
@@ -37,16 +40,29 @@ class _PaletteDelegate(QStyledItemDelegate):
 
     def paint(self, painter: QPainter, option, index) -> None:
         palette = index.data(_PALETTE_ROLE)
+        distance = index.data(_DISTANCE_ROLE)
         rect = option.rect
         if option.state & QStyle.StateFlag.State_Selected:
             painter.fillRect(rect, self._theme.color("bg_selected"))
         elif option.state & QStyle.StateFlag.State_MouseOver:
             painter.fillRect(rect, self._theme.color("bg_hover"))
-        painter.setPen(self._theme.color("text"))
-        name_rect = QRect(rect.left() + 8, rect.top() + 4, rect.width() - 16, 18)
-        painter.drawText(name_rect, Qt.AlignmentFlag.AlignVCenter, f"{palette.name}")
+        line = QRect(rect.left() + 8, rect.top() + 4, rect.width() - 16, 18)
+        right = f"ΔE {distance * 100:.1f}" if distance is not None else f"{len(palette.colors)}"
+        right_width = painter.fontMetrics().horizontalAdvance(right) + 8
         painter.setPen(self._theme.color("text_muted"))
-        painter.drawText(name_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, f"{len(palette.colors)}")
+        painter.drawText(line, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, right)
+        text_area = line.adjusted(0, 0, -right_width, 0)
+        metrics = painter.fontMetrics()
+        name = metrics.elidedText(palette.name, Qt.TextElideMode.ElideRight, text_area.width())
+        painter.setPen(self._theme.color("text"))
+        painter.drawText(text_area, Qt.AlignmentFlag.AlignVCenter, name)
+        if palette.tags:
+            used = metrics.horizontalAdvance(name) + 8
+            tags = metrics.elidedText(
+                " · ".join(palette.tags), Qt.TextElideMode.ElideRight, max(0, text_area.width() - used)
+            )
+            painter.setPen(self._theme.color("text_muted"))
+            painter.drawText(text_area.adjusted(used, 0, 0, 0), Qt.AlignmentFlag.AlignVCenter, tags)
         strip = QRect(rect.left() + 8, rect.top() + 24, rect.width() - 16, 18)
         colors = palette.colors or ("#000000",)
         border = self._theme.color("border_input")
@@ -59,15 +75,32 @@ class _PaletteDelegate(QStyledItemDelegate):
 class LibraryPanel(QWidget):
     openRequested = pyqtSignal(object)  # LibraryPalette
 
-    def __init__(self, theme, library, save_action, import_action, parent=None):
+    def __init__(self, theme, library, save_action, import_action, state=None, parent=None):
         super().__init__(parent)
         self._theme = theme
+        self._state = state
         self.library = library
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search name or #hex")
+        self.search.setPlaceholderText("Search name, tag or #hex")
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.refresh)
+
+        self.tag_filter = QComboBox()
+        self.tag_filter.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.tag_filter.setMinimumContentsLength(6)
+        self.tag_filter.currentIndexChanged.connect(self.refresh)
+        self.similar = QToolButton()
+        self.similar.setCheckable(True)
+        self.similar.setText("Similar")
+        self.similar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.similar.setToolTip("Show palettes with a color close to the foreground color, closest first")
+        theme.bind_icon(self.similar, "target")
+        self.similar.toggled.connect(self.refresh)
+        if state is not None:
+            state.colorsChanged.connect(self._on_colors_changed)
+        else:
+            self.similar.setEnabled(False)
 
         self.list = QListWidget()
         self.list.setItemDelegate(_PaletteDelegate(theme, self.list))
@@ -76,9 +109,10 @@ class LibraryPanel(QWidget):
         self.list.customContextMenuRequested.connect(self._context_menu)
         self.list.itemDoubleClicked.connect(lambda item: self.openRequested.emit(item.data(_PALETTE_ROLE)))
         self.list.currentItemChanged.connect(self._sync_buttons)
-        self.empty = QLabel("No saved palettes yet.\nUse + to save the active palette.")
+        self.empty = QLabel()
         self.empty.setProperty("role", "muted")
         self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setWordWrap(True)
 
         footer = QWidget()
         footer.setObjectName("panelFooter")
@@ -106,7 +140,12 @@ class LibraryPanel(QWidget):
         search_row = QHBoxLayout()
         search_row.setContentsMargins(8, 0, 8, 0)
         search_row.addWidget(self.search)
+        filter_row = QHBoxLayout()
+        filter_row.setContentsMargins(8, 0, 8, 0)
+        filter_row.addWidget(self.tag_filter, 1)
+        filter_row.addWidget(self.similar)
         layout.addLayout(search_row)
+        layout.addLayout(filter_row)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.empty, 1)
         layout.addWidget(footer)
@@ -117,20 +156,52 @@ class LibraryPanel(QWidget):
         item = self.list.currentItem()
         return item.data(_PALETTE_ROLE) if item is not None else None
 
+    def _rebuild_tags(self) -> None:
+        current = self.tag_filter.currentData()
+        self.tag_filter.blockSignals(True)
+        self.tag_filter.clear()
+        self.tag_filter.addItem("All tags", None)
+        for tag, count in self.library.all_tags():
+            self.tag_filter.addItem(f"{tag} ({count})", tag)
+        index = self.tag_filter.findData(current) if current else 0
+        self.tag_filter.setCurrentIndex(max(index, 0))
+        self.tag_filter.blockSignals(False)
+
+    def _on_colors_changed(self) -> None:
+        if self.similar.isChecked():
+            self.refresh()
+
     def refresh(self, *_args) -> None:
+        self._rebuild_tags()
         current = self.selected()
+        search = self.search.text().strip()
+        tag = self.tag_filter.currentData()
         self.list.clear()
-        palettes = self.library.palettes(self.search.text().strip())
-        for palette in palettes:
+        if self.similar.isChecked() and self._state is not None:
+            allowed = {p.id for p in self.library.palettes(search, tag)} if (search or tag) else None
+            rows = [
+                (match.palette, match.distance)
+                for match in self.library.similar_palettes(self._state.foreground)
+                if allowed is None or match.palette.id in allowed
+            ]
+            empty_text = f"No saved palette has a color close to {self._state.foreground}."
+        else:
+            rows = [(palette, None) for palette in self.library.palettes(search, tag)]
+            empty_text = (
+                "No palettes match." if (search or tag) else "No saved palettes yet.\nUse + to save the active palette."
+            )
+        for palette, distance in rows:
             item = QListWidgetItem(palette.name)
             item.setData(_PALETTE_ROLE, palette)
-            item.setToolTip(f"{palette.name}\n{' '.join(palette.colors)}\nDouble-click to open")
+            item.setData(_DISTANCE_ROLE, distance)
+            tags = f"\nTags: {', '.join(palette.tags)}" if palette.tags else ""
+            item.setToolTip(f"{palette.name}{tags}\n{' '.join(palette.colors)}\nDouble-click to open")
             self.list.addItem(item)
             if current is not None and palette.id == current.id:
                 self.list.setCurrentItem(item)
-        has_any = bool(palettes) or bool(self.search.text())
-        self.list.setVisible(has_any)
-        self.empty.setVisible(not has_any)
+        self.empty.setText(empty_text)
+        self.list.setVisible(bool(rows))
+        self.empty.setVisible(not rows)
         self._sync_buttons()
 
     def select_id(self, palette_id: int) -> None:
@@ -162,6 +233,17 @@ class LibraryPanel(QWidget):
             self.library.rename_palette(palette.id, name.strip())
             self.refresh()
 
+    def edit_tags_selected(self) -> None:
+        palette = self.selected()
+        if palette is None:
+            return
+        text, ok = QInputDialog.getText(
+            self, "Edit Tags", "Tags, separated by commas:", text=", ".join(palette.tags)
+        )
+        if ok:
+            self.library.set_tags(palette.id, text.split(","))
+            self.refresh()
+
     def _context_menu(self, pos) -> None:
         item = self.list.itemAt(pos)
         if item is None:
@@ -170,6 +252,7 @@ class LibraryPanel(QWidget):
         menu = QMenu(self)
         menu.addAction("Open", lambda: self.openRequested.emit(item.data(_PALETTE_ROLE)))
         menu.addAction("Rename…", self.rename_selected)
+        menu.addAction("Edit Tags…", self.edit_tags_selected)
         menu.addSeparator()
         menu.addAction("Delete…", self.delete_selected)
         menu.exec(self.list.viewport().mapToGlobal(pos))

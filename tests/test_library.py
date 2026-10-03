@@ -96,3 +96,61 @@ def test_migrations_upgrade_an_old_file(tmp_path, monkeypatch):
     assert upgraded.get_palette(pid).colors == ("#ABCDEF",)
     upgraded._db.execute("UPDATE palettes SET note = 'ok'")
     upgraded.close()
+
+
+# ------------------------------------------------------------------ v2: tags
+
+
+def test_tags_round_trip_and_normalize(library):
+    pid = library.add_palette("Brand", ["#0B3D91"], tags=["Brand", " web ", "brand", ""])
+    assert library.get_palette(pid).tags == ("Brand", "web")
+    library.set_tags(pid, ["dark mode", "Web"])
+    assert library.get_palette(pid).tags == ("dark mode", "Web")
+    library.delete_palette(pid)
+    assert library._db.execute("SELECT COUNT(*) FROM palette_tags").fetchone()[0] == 0
+
+
+def test_filter_and_search_by_tag(library):
+    a = library.add_palette("Ocean", ["#0077BE"], tags=["blue", "web"])
+    b = library.add_palette("Forest", ["#228B22"], tags=["green", "web"])
+    library.add_palette("Night", ["#111111"], tags=["dark"])
+    assert [p.id for p in library.palettes(tag="web")] == [b, a]
+    assert [p.id for p in library.palettes(tag="WEB")] == [b, a]  # tags are case-insensitive
+    assert [p.name for p in library.palettes("gree")] == ["Forest"]  # search also looks at tags
+    assert [p.name for p in library.palettes("o", tag="blue")] == ["Ocean"]
+    assert library.all_tags()[0] == ("web", 2)
+
+
+def test_similar_palettes_ranked_by_distance(library):
+    near = library.add_palette("Near", ["#FFFFFF", "#E63A47"])
+    far = library.add_palette("Far", ["#E06070"])
+    library.add_palette("Unrelated", ["#2244FF", "#00AA00"])
+    results = library.similar_palettes("#E63946")
+    assert [r.palette.id for r in results] == [near, far]
+    assert results[0].closest == "#E63A47" and results[0].distance < 0.01
+    assert results[1].distance > results[0].distance
+    assert library.similar_palettes("#E63946", max_distance=0.001) == []  # nearest is 0.0014 away
+
+
+def test_version_1_library_upgrades_to_tags(tmp_path, monkeypatch):
+    import colorize.storage.library as storage
+
+    path = tmp_path / "v1.sqlite"
+    monkeypatch.setattr(storage, "MIGRATIONS", storage.MIGRATIONS[:1])
+    monkeypatch.setattr(storage, "SCHEMA_VERSION", 1)
+    old = storage.Library(path)
+    # Raw SQL: add_palette() also writes tags, which a v1 file cannot hold.
+    old._db.execute("INSERT INTO palettes (name, created, updated) VALUES ('From v1', 'x', 'x')")
+    old._db.execute("INSERT INTO palette_colors VALUES (1, 0, '#123456')")
+    old._db.commit()
+    assert old.schema_version == 1
+    old.close()
+    monkeypatch.undo()
+
+    upgraded = Library(path)
+    assert upgraded.schema_version == SCHEMA_VERSION == 2
+    palette = upgraded.palettes()[0]
+    assert (palette.name, palette.colors, palette.tags) == ("From v1", ("#123456",), ())
+    upgraded.set_tags(palette.id, ["kept"])
+    assert upgraded.get_palette(palette.id).tags == ("kept",)
+    upgraded.close()

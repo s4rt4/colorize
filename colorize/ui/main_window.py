@@ -278,7 +278,9 @@ class MainWindow(QMainWindow):
             "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
             "export": ExportPanel(self.settings),
-            "library": LibraryPanel(self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"]),
+            "library": LibraryPanel(
+                self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"], self.state
+            ),
         }
         titles = {
             "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "scale": "Scale", "gradient": "Gradient", "contrast": "Contrast",
