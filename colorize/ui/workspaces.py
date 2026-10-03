@@ -10,11 +10,11 @@ WORKSPACES = {
     "essentials": (
         ("color", "swatches", "harmony", "scale"),
         ("contrast", "cvd"),
-        ("history", "export", "library"),
+        ("history", "export", "library", "gradient"),
     ),
     "palette": (
         ("swatches", "library", "export"),
-        ("color", "harmony", "scale"),
+        ("color", "harmony", "scale", "gradient"),
     ),
     "accessibility": (
         ("contrast",),

@@ -43,6 +43,7 @@ from colorize.ui.contrast_panel import ContrastPanel
 from colorize.ui.cvd_panel import CvdPanel
 from colorize.ui.document_view import DocumentView
 from colorize.ui.export_panel import ExportPanel
+from colorize.ui.gradient_panel import GradientPanel
 from colorize.ui.harmony_panel import HarmonyPanel
 from colorize.ui.image_view import ImageView
 from colorize.ui.library_panel import LibraryPanel
@@ -137,6 +138,8 @@ class MainWindow(QMainWindow):
         self.panels["library"].openRequested.connect(self.open_from_library)
         self.panels["scale"].addRequested.connect(partial(self._add_colors_to_palette, label="Add Scale"))
         self.panels["scale"].newPaletteRequested.connect(partial(self._palette_from_colors, label="New Scale"))
+        self.panels["gradient"].addRequested.connect(partial(self._add_colors_to_palette, label="Add Gradient"))
+        self.panels["gradient"].newPaletteRequested.connect(partial(self._palette_from_colors, label="New Gradient"))
         self.panels["export"].exported.connect(
             lambda path: self.statusBar().showMessage(f"Exported {path}", 4000)
         )
@@ -270,6 +273,7 @@ class MainWindow(QMainWindow):
             "swatches": SwatchesPanel(self.theme, self.actions["add_fg"], self.actions["delete_swatch"]),
             "harmony": HarmonyPanel(self.theme, self.harmony, self.state, self.actions["add_harmony"]),
             "scale": ScalePanel(self.theme, self.state),
+            "gradient": GradientPanel(self.theme, self.state),
             "contrast": ContrastPanel(self.theme, self.state),
             "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
@@ -277,10 +281,10 @@ class MainWindow(QMainWindow):
             "library": LibraryPanel(self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"]),
         }
         titles = {
-            "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "scale": "Scale", "contrast": "Contrast",
+            "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "scale": "Scale", "gradient": "Gradient", "contrast": "Contrast",
             "cvd": "Color Blindness", "history": "History", "export": "Export", "library": "Libraries",
         }
-        icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "scale": "scale", "contrast": "contrast",
+        icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "scale": "scale", "gradient": "gradient", "contrast": "contrast",
                  "cvd": "cvd", "history": "history", "export": "export", "library": "library"}
         self.docks: dict[str, ads.CDockWidget] = {}
         for key, widget in self.panels.items():

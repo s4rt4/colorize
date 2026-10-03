@@ -46,6 +46,11 @@ ICONS = {
         '<rect x="4" y="3.5" width="16" height="4" rx="1" fill="C"/><rect x="4" y="10" width="16" height="4" rx="1"/>'
         '<rect x="4" y="16.5" width="16" height="4" rx="1"/><path d="M8 12h8"/>'
     ),
+    "gradient": (
+        '<rect x="3.5" y="5" width="17" height="14" rx="1.5"/>'
+        '<path d="M7 5v14" stroke-opacity="1"/><path d="M11 5v14" stroke-opacity=".7"/>'
+        '<path d="M15 5v14" stroke-opacity=".45"/><path d="M18.5 5v14" stroke-opacity=".2"/>'
+    ),
     "history": '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v4h4"/><path d="M12 8v4l3 2"/>',
     "export": '<path d="M12 15V4"/><path d="M8 8l4-4 4 4"/><path d="M5 13v6h14v-6"/>',
     "library": '<rect x="3.5" y="4" width="4.5" height="16" rx="1"/><rect x="9.5" y="4" width="4.5" height="16" rx="1"/>'
