@@ -593,7 +593,7 @@ class GuideDoc(BaseDocTemplate):
         canv.drawString(MARGIN, PAGE_H - 12.4 * cm, "Colorize")
         canv.setFont("Sans-Semi", 20)
         canv.setFillColor(colors.HexColor("#7AB8FF"))
-        canv.drawString(MARGIN, PAGE_H - 13.7 * cm, "Edisi Lengkap" if FULL else "Buku Panduan Lengkap")
+        canv.drawString(MARGIN, PAGE_H - 13.7 * cm, "Edisi Lengkap" if FULL else "Buku Panduan Ringkas")
         canv.setFont("Sans", 12.5)
         canv.setFillColor(colors.HexColor("#B8B8B8"))
         lines = ((
