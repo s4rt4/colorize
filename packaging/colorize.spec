@@ -60,8 +60,9 @@ def keep(entry) -> bool:
     if any(part in name for part in UNUSED) or "/qt6/translations/" in name:
         return False
     if not WINDOWS:
-        base = name.rsplit("/", 1)[-1]
-        if base.startswith(HOST_LIBS) or name.endswith("platformthemes/libqgtk3.so"):
+        # Only top-level entries are copies of system libraries; wheels keep their own
+        # private copies in subfolders (pillow.libs/libxcb-<hash>.so...), which stay.
+        if ("/" not in name and name.startswith(HOST_LIBS)) or name.endswith("platformthemes/libqgtk3.so"):
             return False
     return True
 
