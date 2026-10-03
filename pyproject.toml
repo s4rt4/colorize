@@ -3,6 +3,8 @@ name = "colorize"
 version = "0.1.0"
 description = "Offline desktop color manager with an Adobe-style interface"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "PyQt6>=6.8",
     "PyQt6Ads>=4.4",

@@ -58,3 +58,8 @@ Rules: `core/` stays Qt-free; the UI never edits a Palette directly, only throug
 
 Settings (theme, window, panel layout, custom workspaces) are stored in
 `%APPDATA%\Colorize\Colorize.ini`.
+
+## License
+
+Code: MIT, see `LICENSE`. The bundled Source Sans 3 font is licensed separately under the
+SIL Open Font License (`colorize/ui/fonts/OFL-SourceSans3.txt`).
