@@ -12,11 +12,13 @@ gamut check was tried and dropped: with coarse profiles it disagrees with the
 conversion itself, flagging colors that convert unchanged and passing ones that shift.
 
 No profile ships with Colorize (profile licenses vary). Windows includes a SWOP
-profile; others (e.g. Coated FOGRA39 from ECI) can be loaded by the user. Without a
-profile only a device-independent *approximation* of CMYK is possible.
+profile; on Linux, CMYK profiles come from packages (colord, ghostscript, icc-profiles)
+in the XDG icc folders. Others (e.g. Coated FOGRA39 from ECI) can be loaded by the
+user. Without a profile only a device-independent *approximation* of CMYK is possible.
 """
 
 import os
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -37,6 +39,22 @@ INTENTS = {
 }
 INTENT_LABELS = {"relative": "Relative Colorimetric", "perceptual": "Perceptual"}
 SYSTEM_PROFILE_DIR = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "spool" / "drivers" / "color"
+
+
+def system_profile_dirs(platform: str = sys.platform, env=os.environ, home: Path | None = None) -> list[Path]:
+    """Where the OS keeps ICC profiles. Linux follows the freedesktop ICC spec
+    ($XDG_DATA_HOME/icc, <each XDG_DATA_DIRS>/color/icc, ~/.color/icc), whose
+    profiles sit in per-package subfolders, so those are searched recursively."""
+    home = home or Path.home()
+    if platform == "win32":
+        return [SYSTEM_PROFILE_DIR]
+    if platform == "darwin":
+        return [Path("/Library/ColorSync/Profiles"), home / "Library" / "ColorSync" / "Profiles",
+                Path("/System/Library/ColorSync/Profiles")]
+    data_home = Path(env.get("XDG_DATA_HOME") or home / ".local" / "share")
+    data_dirs = [Path(d) for d in (env.get("XDG_DATA_DIRS") or "/usr/local/share:/usr/share").split(":") if d]
+    folders = [data_home / "icc", home / ".color" / "icc"] + [d / "color" / "icc" for d in data_dirs]
+    return list(dict.fromkeys(folders))
 
 _SRGB = ImageCms.createProfile("sRGB")
 
@@ -81,17 +99,28 @@ def profile_info(path) -> CmykProfileInfo | None:
     return CmykProfileInfo(str(path), description)
 
 
-def find_cmyk_profiles(folders=(SYSTEM_PROFILE_DIR,)) -> list[CmykProfileInfo]:
-    found = []
+def find_cmyk_profiles(folders=None, recursive: bool | None = None) -> list[CmykProfileInfo]:
+    """CMYK profiles in the system folders (or ``folders``), each file listed once."""
+    if folders is None:
+        folders = system_profile_dirs()
+    if recursive is None:
+        recursive = sys.platform != "win32"
+    found, seen = [], set()
     for folder in folders:
         folder = Path(folder)
         if not folder.is_dir():
             continue
-        for path in sorted(folder.iterdir()):
-            if path.suffix.lower() in (".icc", ".icm"):
-                info = profile_info(path)
-                if info is not None:
-                    found.append(info)
+        candidates = folder.rglob("*") if recursive else folder.iterdir()
+        for path in sorted(candidates):
+            if path.suffix.lower() not in (".icc", ".icm") or not path.is_file():
+                continue
+            key = path.resolve()
+            if key in seen:
+                continue
+            seen.add(key)
+            info = profile_info(path)
+            if info is not None:
+                found.append(info)
     return found
 
 

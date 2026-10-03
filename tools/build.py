@@ -1,24 +1,28 @@
-"""Build the Windows app folder and check it like a clean machine would.
+"""Build the app folder (Windows or Linux) and check it like a clean machine would.
 
-    python tools/build.py            # build + clean-environment smoke test + zip
+    python tools/build.py            # build + clean-environment smoke test + archive
     python tools/build.py --no-zip
 
 Steps:
 1. PyInstaller one-folder build from packaging/colorize.spec -> dist/Colorize/
-2. Copy it outside the project and start Colorize.exe --smoke-test with a stripped
-   environment: PATH = Windows only (no Python, no dev tools), fresh APPDATA/LOCALAPPDATA,
-   a new profile. Anything the app silently borrowed from this machine fails here.
+   (Linux: plus colorize.desktop, colorize.png and install.sh from packaging/linux).
+2. Copy it outside the project and start it with --smoke-test in a stripped
+   environment: system PATH only (no Python, no dev tools), fresh AppData (Windows) or
+   HOME/XDG folders (Linux), a new profile. Anything the app silently borrowed from
+   this machine fails here. Linux without a display runs Qt offscreen.
    Run 3 times: first launch (cold profile) and two warm ones; report startup times.
    A 4th run opens a Display P3 photo and an ASE with a Lab swatch, so the parts that
    load lazily (Pillow + LittleCMS, NumPy extraction, coloraide) run in the frozen app.
-3. Zip dist/Colorize -> dist/Colorize-<version>-win64.zip
+3. Archive: dist/Colorize-<version>-win64.zip or dist/Colorize-<version>-linux-<arch>.tar.gz
 """
 
 import os
+import platform
 import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import zipfile
@@ -30,6 +34,9 @@ sys.path.insert(0, str(ROOT))
 from colorize import __version__  # noqa: E402
 
 DIST = ROOT / "dist" / "Colorize"
+WINDOWS = sys.platform == "win32"
+APP_EXE = "Colorize.exe" if WINDOWS else "Colorize"
+LINUX_FILES = ("colorize.desktop", "colorize.png", "install.sh")
 STARTUP_BUDGET_S = 3.0
 
 VERSION_INFO = """VSVersionInfo(
@@ -54,9 +61,10 @@ VERSION_INFO = """VSVersionInfo(
 def build() -> None:
     parts = [int(p) for p in __version__.split(".")] + [0] * 3
     (ROOT / "build").mkdir(exist_ok=True)
-    (ROOT / "build" / "version_info.txt").write_text(
-        VERSION_INFO.format(v=", ".join(str(p) for p in parts[:3]), dotted=__version__), encoding="utf-8"
-    )
+    if WINDOWS:
+        (ROOT / "build" / "version_info.txt").write_text(
+            VERSION_INFO.format(v=", ".join(str(p) for p in parts[:3]), dotted=__version__), encoding="utf-8"
+        )
     subprocess.run(
         [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--log-level", "WARN",
          "--distpath", str(ROOT / "dist"), "--workpath", str(ROOT / "build" / "pyinstaller"),
@@ -64,9 +72,38 @@ def build() -> None:
         check=True,
         cwd=ROOT,
     )
+    if not WINDOWS:
+        for name in LINUX_FILES:
+            shutil.copy2(ROOT / "packaging" / "linux" / name, DIST / name)
+        (DIST / "install.sh").chmod(0o755)
 
 
 def clean_env(home: Path) -> dict:
+    return clean_env_windows(home) if WINDOWS else clean_env_linux(home)
+
+
+def clean_env_linux(home: Path) -> dict:
+    """System PATH only and a fresh HOME/XDG tree. A desktop session (X11/Wayland) is
+    passed through when there is one; otherwise Qt renders offscreen."""
+    env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_DATA_HOME": str(home / ".local" / "share"),
+        "XDG_CACHE_HOME": str(home / ".cache"),
+        "TMPDIR": str(home / "tmp"),
+        "LANG": os.environ.get("LANG", "C.UTF-8"),
+    }
+    for folder in (".config", ".local/share", ".cache", "tmp"):
+        (home / folder).mkdir(parents=True, exist_ok=True)
+    session = ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS")
+    env.update({k: os.environ[k] for k in session if k in os.environ})
+    if not (env.get("DISPLAY") or env.get("WAYLAND_DISPLAY")):
+        env["QT_QPA_PLATFORM"] = "offscreen"
+    return env
+
+
+def clean_env_windows(home: Path) -> dict:
     windows = os.environ.get("SystemRoot", r"C:\Windows")
     env = {
         "SystemRoot": windows,
@@ -116,7 +153,7 @@ def smoke_test() -> list[float]:
     for run in range(3):
         start = time.perf_counter()
         proc = subprocess.run(
-            [str(app_dir / "Colorize.exe"), "--profile", str(profile), "--smoke-test"],
+            [str(app_dir / APP_EXE), "--profile", str(profile), "--smoke-test"],
             env=env,
             cwd=sandbox,
             timeout=60,
@@ -135,7 +172,7 @@ def smoke_test() -> list[float]:
         times.append(ready)
     files = sample_files(sandbox)
     proc = subprocess.run(
-        [str(app_dir / "Colorize.exe"), "--profile", str(profile), "--smoke-test", *map(str, files)],
+        [str(app_dir / APP_EXE), "--profile", str(profile), "--smoke-test", *map(str, files)],
         env=env,
         cwd=sandbox,
         timeout=60,
@@ -149,6 +186,12 @@ def smoke_test() -> list[float]:
 
 
 def make_zip() -> Path:
+    if not WINDOWS:
+        machine = {"amd64": "x86_64", "arm64": "aarch64"}.get(platform.machine().lower(), platform.machine().lower())
+        target = ROOT / "dist" / f"Colorize-{__version__}-linux-{machine}.tar.gz"
+        with tarfile.open(target, "w:gz") as archive:  # tar keeps the executable bits
+            archive.add(DIST, arcname="Colorize")
+        return target
     target = ROOT / "dist" / f"Colorize-{__version__}-win64.zip"
     with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for path in DIST.rglob("*"):
@@ -161,8 +204,8 @@ def folder_size(path: Path) -> float:
 
 
 def main() -> int:
-    if sys.platform != "win32":
-        raise SystemExit("this build script targets Windows")
+    if not (WINDOWS or sys.platform.startswith("linux")):
+        raise SystemExit("this build script targets Windows and Linux")
     print(f"Building Colorize {__version__} …")
     build()
     print(f"Built {DIST} ({folder_size(DIST):.0f} MB)")

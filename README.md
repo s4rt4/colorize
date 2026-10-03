@@ -51,6 +51,25 @@ one that opens a Display P3 photo and a Lab `.ase` so the lazily loaded parts ru
 The executable is not code-signed, so Windows SmartScreen shows "Windows protected your
 PC" on first run (More info › Run anyway).
 
+
+## Linux
+
+Supported on x86_64 desktops (X11 and Wayland). Run from source with
+`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m colorize`.
+Qt needs a few system libraries the wheels don't carry; on Debian/Ubuntu:
+`sudo apt install libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libdbus-1-3`.
+
+- Build: `.venv/bin/python tools/build.py` (needs `pyinstaller`) gives
+  `dist/Colorize-<version>-linux-x86_64.tar.gz`. Unpack it anywhere and run
+  `Colorize/install.sh` for a menu entry and icon (`--uninstall` removes them).
+- Settings live in `~/.config/Colorize`, the library and log in `~/.local/share/Colorize/Colorize`.
+- Print panel: CMYK ICC profiles are found in the XDG icc folders (`~/.local/share/icc`,
+  `/usr/share/color/icc`, including package subfolders). Distros ship few; `ghostscript`
+  adds a generic one, or load your own (e.g. Coated FOGRA39) with *Load Profile…*.
+- Sample Screen Color on Wayland goes through xdg-desktop-portal (the desktop may ask
+  for permission once). On X11 the screen is read directly.
+- CI (`.github/workflows/ci.yml`) runs the tests on Ubuntu and Windows and builds the
+  Linux archive with the clean-environment smoke test (Qt offscreen).
 ## Test
 
 ```

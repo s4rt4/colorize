@@ -30,6 +30,7 @@ from colorize.ui.splash import SplashScreen  # noqa: E402
 FONT_DIR = Path(__file__).parent / "ui" / "fonts"
 LOGO = Path(__file__).parent / "ui" / "assets" / "logo.svg"
 UI_FONT_PX = 13
+FALLBACK_UI_FONT = {"win32": "Segoe UI", "darwin": "Helvetica Neue"}.get(sys.platform, "sans-serif")
 
 log = logging.getLogger("colorize")
 
@@ -94,8 +95,8 @@ def parse_args(argv: list[str]) -> tuple[Path | None, bool, list[str]]:
 
 
 def load_ui_font(app: QApplication) -> str:
-    """Use bundled Source Sans 3 (OFL); fall back to Segoe UI."""
-    family = "Segoe UI"
+    """Use bundled Source Sans 3 (OFL); fall back to the system UI font."""
+    family = FALLBACK_UI_FONT
     for path in sorted(FONT_DIR.glob("*.ttf")):
         font_id = QFontDatabase.addApplicationFont(str(path))
         families = QFontDatabase.applicationFontFamilies(font_id) if font_id >= 0 else []

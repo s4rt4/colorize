@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Colorize
+GenericName=Color Manager
+Comment=Pick, check and export color palettes
+Exec="@APPDIR@/Colorize" %F
+Icon=colorize
+Terminal=false
+Categories=Graphics;Development;
+MimeType=image/png;image/jpeg;image/webp;image/tiff;image/bmp;image/gif;application/json;
+StartupWMClass=Colorize
