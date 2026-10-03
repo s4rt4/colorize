@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor, QImage, QPainter
 
 from colorize.core.gamut import MAX_SRGB_CHROMA
 from colorize.core.oklab import lch_to_ab, oklab_to_srgb8
+from colorize.core.ryb import ryb_to_oklch_hue
 
 OUT_OF_GAMUT_OPACITY = 0.35
 
@@ -40,24 +41,28 @@ def _dim_outside(rgb8: np.ndarray, inside: np.ndarray, bg: QColor) -> np.ndarray
 
 
 @lru_cache(maxsize=4)
-def _wheel_grid(n: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-pixel OKLab a/b for the disc (independent of lightness) and the rim alpha."""
+def _wheel_grid(n: int, wheel: str = "oklch") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Per-pixel OKLab a/b for the disc (independent of lightness) and the rim alpha.
+    On the RYB wheel the pixel's angle is a painter's-wheel position, mapped to OKLCH hue."""
     center = (n - 1) / 2
     ys, xs = np.mgrid[0:n, 0:n].astype(np.float32)
     dx, dy = xs - center, center - ys
     radius = np.hypot(dx, dy) / center
     hue = np.degrees(np.arctan2(dy, dx))
+    if wheel == "ryb":
+        hue = ryb_to_oklch_hue(hue).astype(np.float32)
     a, b = lch_to_ab(np.minimum(radius, 1.0) * MAX_SRGB_CHROMA, hue)
     edge_px = (1.0 - radius) * center  # distance inside the rim, for an anti-aliased edge
     alpha8 = (np.clip(edge_px + 0.5, 0.0, 1.0) * 255).astype(np.uint8)
     return a, b, alpha8
 
 
-def wheel_image(side: int, dpr: float, lightness: float, bg: QColor) -> QImage:
+def wheel_image(side: int, dpr: float, lightness: float, bg: QColor, wheel: str = "oklch") -> QImage:
     """OKLCH hue/chroma disc at one lightness: angle = hue (0° at 3 o'clock,
-    counter-clockwise), radius = chroma from 0 to MAX_SRGB_CHROMA."""
+    counter-clockwise; a painter's-wheel position on the RYB wheel), radius = chroma
+    from 0 to MAX_SRGB_CHROMA."""
     n = max(2, round(side * dpr))
-    a, b, alpha8 = _wheel_grid(n)
+    a, b, alpha8 = _wheel_grid(n, wheel)
     rgb8, inside = oklab_to_srgb8(lightness, a, b)
     return _to_qimage(_dim_outside(rgb8, inside, bg), alpha8, dpr)
 

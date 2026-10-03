@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 
 from colorize.core.gamut import MAX_SRGB_CHROMA
 from colorize.core.harmony import RULE_LABELS, RULES
+from colorize.core.ryb import WHEEL_LABELS, WHEELS
 from colorize.ui.color_wheel import HarmonySwatches, HarmonyWheel
 
 CHROMA_SCALE = 1000  # slider units per chroma unit
@@ -46,6 +47,19 @@ class HarmonyPanel(QWidget):
         top.addWidget(QLabel("Rule"))
         top.addWidget(self.rule, 1)
         top.addWidget(use_fg)
+
+        self.wheel_kind = QComboBox()
+        for wheel in WHEELS:
+            self.wheel_kind.addItem(WHEEL_LABELS[wheel], wheel)
+        self.wheel_kind.setToolTip(
+            "Perceptual: hues evenly spaced as the eye sees them.\n"
+            "Artist: the painter's red-yellow-blue wheel (red↔green, yellow↔purple, blue↔orange)."
+        )
+        self.wheel_kind.currentIndexChanged.connect(lambda i: model.set_wheel(WHEELS[i]))
+        model.wheelChanged.connect(lambda wheel: self.wheel_kind.setCurrentIndex(WHEELS.index(wheel)))
+        wheel_row = QHBoxLayout()
+        wheel_row.addWidget(QLabel("Wheel"))
+        wheel_row.addWidget(self.wheel_kind, 1)
 
         self.wheel = HarmonyWheel(theme, model)
 
@@ -87,6 +101,7 @@ class HarmonyPanel(QWidget):
         layout.setContentsMargins(10, 8, 10, 10)
         layout.setSpacing(8)
         layout.addLayout(top)
+        layout.addLayout(wheel_row)
         layout.addWidget(self.wheel, 1)
         layout.addLayout(sliders)
         layout.addWidget(self.swatches)

@@ -9,6 +9,8 @@ Results are in display order; ``base_index`` says which entry is the base color.
 
 from dataclasses import dataclass
 
+from colorize.core.ryb import from_wheel, to_wheel
+
 RULES = ("complementary", "analogous", "triadic", "tetradic", "split", "monochromatic")
 
 RULE_LABELS = {
@@ -51,7 +53,9 @@ def _mono_lightness(base: float) -> list[float]:
     return sorted(nearest + [base])
 
 
-def harmony(rule: str, lightness: float, chroma: float, hue: float) -> Harmony:
+def harmony(rule: str, lightness: float, chroma: float, hue: float, wheel: str = "oklch") -> Harmony:
+    """Rule offsets are applied on ``wheel`` ("oklch", or "ryb" for the artist's wheel);
+    the resulting colors are always OKLCH."""
     if rule not in RULES:
         raise ValueError(f"unknown harmony rule: {rule!r}")
     hue %= 360
@@ -60,7 +64,9 @@ def harmony(rule: str, lightness: float, chroma: float, hue: float) -> Harmony:
         colors = tuple((level, chroma, hue) for level in levels)
         return Harmony(rule, colors, levels.index(lightness))
     offsets = HUE_OFFSETS[rule]
-    colors = tuple((lightness, chroma, (hue + offset) % 360) for offset in offsets)
+    angle = to_wheel(hue, wheel)
+    hues = [hue if offset == 0 else from_wheel(angle + offset, wheel) for offset in offsets]
+    colors = tuple((lightness, chroma, h) for h in hues)
     return Harmony(rule, colors, offsets.index(0))
 
 

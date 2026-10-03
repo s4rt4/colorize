@@ -249,3 +249,21 @@ def test_lightness_drag_previews_then_sharpens(harmony_ui, qtbot, monkeypatch):
     qtbot.waitUntil(lambda: not wheel._preview, timeout=2000)
     wheel.repaint()
     assert wheel._cache_key[1] == 2.0
+
+
+def test_ryb_wheel_mode(harmony_ui, qtbot):
+    model, wheel = harmony_ui._model, harmony_ui.wheel
+    model.set_rule("complementary")
+    model.set_base_hex("#FF0000")
+    harmony_ui.wheel_kind.setCurrentIndex(harmony_ui.wheel_kind.findData("ryb"))
+    assert model.wheel == "ryb"
+    complement_hue = model.harmony.colors[1][2]
+    assert 135 < complement_hue < 150  # green, not the cyan of the OKLCH wheel
+    wheel.repaint()
+    assert wheel._cache_key[-1] == "ryb"
+    # dragging still lands the dragged handle under the cursor on the RYB wheel
+    target = wheel.point_for(0.12, model.harmony.colors[1][2])
+    qtbot.mousePress(wheel, Qt.MouseButton.LeftButton, pos=wheel.point_for(model.base[1], model.base[2]).toPoint())
+    qtbot.mouseMove(wheel, target.toPoint())
+    qtbot.mouseRelease(wheel, Qt.MouseButton.LeftButton, pos=target.toPoint())
+    assert (wheel.point_for(model.base[1], model.base[2]) - target).manhattanLength() < 4

@@ -9,15 +9,18 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from colorize.core.color import to_oklch
 from colorize.core.gamut import MappedColor, map_to_srgb
 from colorize.core.harmony import RULES, Harmony, harmony
+from colorize.core.ryb import WHEELS
 
 
 class HarmonyModel(QObject):
     changed = pyqtSignal()
     ruleChanged = pyqtSignal(str)
+    wheelChanged = pyqtSignal(str)
 
     def __init__(self, rule: str = "complementary", base_hex: str = "#3D6A9E", parent=None):
         super().__init__(parent)
         self._rule = rule
+        self._wheel = "oklch"
         self._base = to_oklch(base_hex)
         self._update()
 
@@ -52,6 +55,18 @@ class HarmonyModel(QObject):
             self._update()
             self.ruleChanged.emit(rule)
 
+    @property
+    def wheel(self) -> str:
+        return self._wheel
+
+    def set_wheel(self, wheel: str) -> None:
+        if wheel not in WHEELS:
+            raise ValueError(f"unknown wheel: {wheel!r}")
+        if wheel != self._wheel:
+            self._wheel = wheel
+            self._update()
+            self.wheelChanged.emit(wheel)
+
     def set_base_hex(self, hex_color: str) -> None:
         self._base = to_oklch(hex_color)
         self._update()
@@ -68,6 +83,6 @@ class HarmonyModel(QObject):
             self._update()
 
     def _update(self) -> None:
-        self._harmony = harmony(self._rule, *self._base)
+        self._harmony = harmony(self._rule, *self._base, wheel=self._wheel)
         self._mapped = tuple(map_to_srgb(*c) for c in self._harmony.colors)
         self.changed.emit()

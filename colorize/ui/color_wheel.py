@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import QSizePolicy, QToolTip, QWidget
 from colorize.core.color import format_oklch
 from colorize.core.gamut import MAX_SRGB_CHROMA
 from colorize.core.harmony import offset_of
+from colorize.core.ryb import from_wheel, to_wheel
 from colorize.ui.color_render import paint_swatch, wheel_image
 
 HANDLE_RADIUS = 7
@@ -62,13 +63,14 @@ class HarmonyWheel(QWidget):
         return QPointF(self.width() / 2, self.height() / 2)
 
     def point_for(self, chroma: float, hue: float) -> QPointF:
+        """Position of an OKLCH chroma/hue (hue is placed on the current wheel)."""
         r = min(chroma / MAX_SRGB_CHROMA, 1.0) * self._radius()
-        angle = math.radians(hue)
+        angle = math.radians(to_wheel(hue, self._model.wheel))
         c = self._center()
         return QPointF(c.x() + r * math.cos(angle), c.y() - r * math.sin(angle))
 
     def polar_at(self, pos: QPointF) -> tuple[float, float]:
-        """(chroma, hue) under a widget position; chroma is clamped to the rim."""
+        """(chroma, wheel angle) under a widget position; chroma is clamped to the rim."""
         c = self._center()
         dx, dy = pos.x() - c.x(), c.y() - pos.y()
         chroma = min(math.hypot(dx, dy) / self._radius(), 1.0) * MAX_SRGB_CHROMA
@@ -102,9 +104,9 @@ class HarmonyWheel(QWidget):
         if self._preview:
             dpr = min(dpr, 1.0)
         bg = self._theme.color("bg_panel")
-        key = (side, dpr, lightness, bg.name())
+        key = (side, dpr, lightness, bg.name(), self._model.wheel)
         if key != self._cache_key:
-            self._image = wheel_image(side, dpr, lightness, bg)
+            self._image = wheel_image(side, dpr, lightness, bg, self._model.wheel)
             self._cache_key = key
         return self._image
 
@@ -154,9 +156,9 @@ class HarmonyWheel(QWidget):
         self._drag_index = None
 
     def _drag_to(self, pos: QPointF) -> None:
-        chroma, hue = self.polar_at(pos)
-        base_hue = hue - offset_of(self._model.rule, self._drag_index)
-        self._model.edit_base(chroma=chroma, hue=base_hue)
+        chroma, angle = self.polar_at(pos)
+        base_angle = angle - offset_of(self._model.rule, self._drag_index)
+        self._model.edit_base(chroma=chroma, hue=from_wheel(base_angle, self._model.wheel))
 
 
 class HarmonySwatches(QWidget):
