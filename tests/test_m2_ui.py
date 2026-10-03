@@ -1,9 +1,7 @@
-import numpy as np
 import pytest
 from PIL import Image
 from PyQt6.QtCore import QMimeData, QPoint, QPointF, Qt, QUrl
 from PyQt6.QtGui import QColor, QDropEvent, QGuiApplication, QImage, QPixmap
-from PyQt6.QtWidgets import QApplication
 
 from colorize.ui.image_view import ImageView
 from colorize.ui.screen_sampler import ScreenOverlay, ScreenSampler, device_pixel

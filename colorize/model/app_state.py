@@ -7,10 +7,13 @@ are not recorded in the undo history.
 from PyQt6.QtCore import QObject, pyqtSignal
 
 from colorize.core.color import normalize_hex
+from colorize.core.contrast import APCA_TARGETS, METHODS, WCAG_TARGETS
+from colorize.core.cvd import CVD_TYPES, simulate_hex_cached
 
 TOOL_KEYS = ("select", "eyedropper", "harmony", "extract", "contrast", "cvd", "hand", "zoom")
 SAMPLE_SIZES = (1, 3, 5)  # eyedropper: point, 3x3 and 5x5 average
 EXTRACT_COUNT_RANGE = (2, 16)
+DEFAULT_TARGETS = {"wcag": "aa", "apca": "lc75"}
 
 
 class AppState(QObject):
@@ -18,6 +21,9 @@ class AppState(QObject):
     toolChanged = pyqtSignal(str)
     sampleSizeChanged = pyqtSignal(int)
     extractCountChanged = pyqtSignal(int)
+    contrastChanged = pyqtSignal()
+    cvdChanged = pyqtSignal()
+    proofChanged = pyqtSignal(bool)
 
     DEFAULT_FOREGROUND = "#000000"
     DEFAULT_BACKGROUND = "#FFFFFF"
@@ -29,6 +35,11 @@ class AppState(QObject):
         self._tool = "select"
         self._sample_size = 1
         self._extract_count = 5
+        self._contrast_method = "wcag"
+        self._contrast_target = "aa"
+        self._cvd_type = "deutan"  # the most common form
+        self._cvd_severity = 1.0
+        self._proof = False
 
     @property
     def foreground(self) -> str:
@@ -49,6 +60,58 @@ class AppState(QObject):
     @property
     def extract_count(self) -> int:
         return self._extract_count
+
+    @property
+    def contrast_method(self) -> str:
+        return self._contrast_method
+
+    @property
+    def contrast_target(self) -> str:
+        return self._contrast_target
+
+    def set_contrast(self, method: str, target: str | None = None) -> None:
+        """Change the checking method; a method change resets the target to its default."""
+        if method not in METHODS:
+            raise ValueError(f"unknown contrast method: {method!r}")
+        targets = WCAG_TARGETS if method == "wcag" else APCA_TARGETS
+        if target is None or target not in targets:
+            target = self._contrast_target if method == self._contrast_method else DEFAULT_TARGETS[method]
+        if (method, target) != (self._contrast_method, self._contrast_target):
+            self._contrast_method, self._contrast_target = method, target
+            self.contrastChanged.emit()
+
+    @property
+    def cvd_type(self) -> str:
+        return self._cvd_type
+
+    @property
+    def cvd_severity(self) -> float:
+        return self._cvd_severity
+
+    def set_cvd(self, kind: str | None = None, severity: float | None = None) -> None:
+        kind = self._cvd_type if kind is None else kind
+        if kind not in CVD_TYPES:
+            raise ValueError(f"unknown color vision type: {kind!r}")
+        severity = self._cvd_severity if severity is None else min(max(severity, 0.0), 1.0)
+        if (kind, severity) != (self._cvd_type, self._cvd_severity):
+            self._cvd_type, self._cvd_severity = kind, severity
+            self.cvdChanged.emit()
+
+    @property
+    def proof(self) -> bool:
+        return self._proof
+
+    def set_proof(self, on: bool) -> None:
+        if on != self._proof:
+            self._proof = on
+            self.proofChanged.emit(on)
+
+    def proof_filter(self):
+        """hex -> hex function for canvases while proofing, else None."""
+        if not self._proof:
+            return None
+        kind, severity = self._cvd_type, self._cvd_severity
+        return lambda hex_color: simulate_hex_cached(hex_color, kind, severity)
 
     def set_sample_size(self, size: int) -> None:
         if size not in SAMPLE_SIZES:

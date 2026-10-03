@@ -34,7 +34,10 @@ from colorize.formats import colorize_json
 from colorize.model.app_state import AppState
 from colorize.model.harmony import HarmonyModel
 from colorize.model.palette import Document, Palette
+from colorize.core.cvd import cvd_name
 from colorize.ui.color_picker import pick_color
+from colorize.ui.contrast_panel import ContrastPanel
+from colorize.ui.cvd_panel import CvdPanel
 from colorize.ui.document_view import DocumentView
 from colorize.ui.harmony_panel import HarmonyPanel
 from colorize.ui.image_view import ImageView
@@ -48,6 +51,9 @@ from colorize.ui.widgets import ColorChip, ForegroundBackground
 from colorize.ui.workspaces import CUSTOM_PREFIX, PANEL_WIDTH, WORKSPACE_HEIGHTS, WORKSPACE_LABELS, WORKSPACES
 
 LOGO = Path(__file__).parent / "assets" / "logo.svg"
+
+# Tools that bring their panel forward when chosen.
+TOOL_PANELS = {"harmony": "harmony", "contrast": "contrast", "cvd": "cvd"}
 
 SAMPLE_COLORS = ("#1F3A5F", "#3D6A9E", "#7FB2E5", "#F2C14E", "#F78154", "#4D9078", "#B4436C", "#F2F2F2")
 
@@ -118,6 +124,8 @@ class MainWindow(QMainWindow):
 
         self.state.toolChanged.connect(self._on_tool_changed)
         self.state.colorsChanged.connect(self._update_status)
+        self.state.proofChanged.connect(self._update_proof_ui)
+        self.state.cvdChanged.connect(self._update_proof_ui)
         self.screen_sampler.picked.connect(self.state.set_foreground)
         self.setAcceptDrops(True)
         self.theme.changed.connect(self._sync_theme_actions)
@@ -131,6 +139,7 @@ class MainWindow(QMainWindow):
         self._sync_theme_actions()
         self._after_layout_change()
         self._update_status()
+        self._update_proof_ui()
 
     # ------------------------------------------------------------------ actions
 
@@ -178,6 +187,8 @@ class MainWindow(QMainWindow):
             "zoom_out": a("Zoom &Out", lambda: self._with_view("zoom_out"), "Ctrl+-"),
             "fit": a("&Fit on Screen", lambda: self._with_view("fit"), "Ctrl+0"),
             "actual_size": a("&100%", lambda: self._with_view("actual_size"), "Ctrl+1"),
+            "proof": a("Proof &Colors", self.state.set_proof, "Ctrl+Y", checkable=True,
+                       tip="Show canvases as seen with the color vision type chosen in Color Blindness"),
             "collapse_panels": a("&Collapse Panels to Icons", self._set_panels_collapsed, checkable=True),
             "hide_panels": a("Show/&Hide Panels", self._on_tab_pressed, "Tab"),
             "new_workspace": a("&New Workspace…", self._new_workspace),
@@ -239,14 +250,8 @@ class MainWindow(QMainWindow):
             "color": ColorPanel(self.theme, self.state, self.actions["add_fg"], self.actions["sample_screen"]),
             "swatches": SwatchesPanel(self.theme, self.actions["add_fg"], self.actions["delete_swatch"]),
             "harmony": HarmonyPanel(self.theme, self.harmony, self.state, self.actions["add_harmony"]),
-            "contrast": PlaceholderPanel(
-                self.theme, "contrast", "Contrast", "M3",
-                "WCAG 2.x and APCA contrast with lightness suggestions to pass AA/AAA.",
-            ),
-            "cvd": PlaceholderPanel(
-                self.theme, "cvd", "Color Blindness", "M3",
-                "Protan, deutan and tritan simulation with severity (Machado 2009).",
-            ),
+            "contrast": ContrastPanel(self.theme, self.state),
+            "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
             "export": PlaceholderPanel(
                 self.theme, "export", "Export", "M4",
@@ -340,6 +345,8 @@ class MainWindow(QMainWindow):
         view_menu = bar.addMenu("&View")
         view_menu.addActions([A["zoom_in"], A["zoom_out"], A["fit"], A["actual_size"]])
         view_menu.addSeparator()
+        view_menu.addAction(A["proof"])
+        view_menu.addSeparator()
         view_menu.addActions([self.options_bar.toggleViewAction(), self.tools_bar.toggleViewAction()])
 
         window_menu = bar.addMenu("&Window")
@@ -367,8 +374,11 @@ class MainWindow(QMainWindow):
         self.info_label = QLabel()
         self.fg_chip = ColorChip(self.theme, 11)
         self.fg_label = QLabel()
+        self.proof_label = QLabel()
+        self.proof_label.setProperty("role", "badge")
         bar.addWidget(self.zoom_label)
         bar.addWidget(self.info_label, 1)
+        bar.addPermanentWidget(self.proof_label)
         bar.addPermanentWidget(self.fg_chip)
         bar.addPermanentWidget(self.fg_label)
 
@@ -454,6 +464,7 @@ class MainWindow(QMainWindow):
         doc = self.current_document()
         self.undo_group.setActiveStack(doc.undo_stack if doc else None)
         self.panels["swatches"].set_document(doc)
+        self.panels["cvd"].set_document(doc)
         self.center.setCurrentIndex(0 if self.doc_tabs.count() else 1)
         self._refresh_document_ui()
 
@@ -720,8 +731,8 @@ class MainWindow(QMainWindow):
 
     def _on_tool_changed(self, key: str) -> None:
         self.tool_actions[key].setChecked(True)
-        if key == "harmony":
-            dock = self.docks["harmony"]
+        if key in TOOL_PANELS:
+            dock = self.docks[TOOL_PANELS[key]]
             if dock.isClosed():
                 dock.toggleView(True)
             dock.setAsCurrentTab()
@@ -929,6 +940,13 @@ class MainWindow(QMainWindow):
         self.theme_actions[self.theme.name].setChecked(True)
         self.actions["darker"].setEnabled(self.theme.name != THEME_ORDER[0])
         self.actions["lighter"].setEnabled(self.theme.name != THEME_ORDER[-1])
+
+    def _update_proof_ui(self, *_args) -> None:
+        on = self.state.proof
+        self.actions["proof"].setChecked(on)
+        self.proof_label.setVisible(on)
+        if on:
+            self.proof_label.setText(f"Proof: {cvd_name(self.state.cvd_type, self.state.cvd_severity)}")
 
     def _update_status(self) -> None:
         fg = self.state.foreground

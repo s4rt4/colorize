@@ -58,6 +58,7 @@ class SwatchGrid(QWidget):
         self._press_index = -1
         self._press_pos = QPoint()
         self._drop_index: int | None = None
+        self._filter = None  # hex -> hex for display only (proof colors)
 
         policy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         policy.setHeightForWidth(True)
@@ -90,6 +91,11 @@ class SwatchGrid(QWidget):
         self.update()
 
     def _on_selection_changed(self, _index):
+        self.update()
+
+    def set_color_filter(self, color_filter) -> None:
+        """Display-only transform (e.g. color blindness proof); data and labels keep the original."""
+        self._filter = color_filter
         self.update()
 
     # ----- geometry -----
@@ -180,7 +186,7 @@ class SwatchGrid(QWidget):
         p.setFont(self._label_font)
         for i, hex_color in enumerate(self._doc.palette.colors):
             r = self.cell_rect(i)
-            paint_swatch(p, r, hex_color, border)
+            paint_swatch(p, r, self._filter(hex_color) if self._filter else hex_color, border)
             if label_h:
                 p.setPen(muted)
                 text_rect = QRect(r.left() - 8, r.bottom() + 3, r.width() + 16, label_h)
@@ -325,6 +331,7 @@ class ColorStrip(QWidget):
         self._press_index = -1
         self._press_x = 0.0
         self._drop_index: int | None = None  # insertion point 0..n while dragging
+        self._filter = None  # hex -> hex for display only (proof colors)
         self.setFixedHeight(height)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         theme.changed.connect(self.update)
@@ -336,6 +343,10 @@ class ColorStrip(QWidget):
     def set_colors(self, colors, shares=()) -> None:
         self._colors = list(colors)
         self._shares = list(shares)
+        self.update()
+
+    def set_color_filter(self, color_filter) -> None:
+        self._filter = color_filter
         self.update()
 
     def cell_rect(self, index: int) -> QRect:
@@ -361,7 +372,7 @@ class ColorStrip(QWidget):
             rect = self.cell_rect(i)
             if self._drop_index is not None and i == self._press_index:
                 rect = rect.adjusted(0, 4, 0, -4)  # the cell being dragged sinks a little
-            paint_swatch(p, rect, color, border)
+            paint_swatch(p, rect, self._filter(color) if self._filter else color, border)
         if self._drop_index is not None:
             n = len(self._colors)
             x = self.cell_rect(self._drop_index).left() if self._drop_index < n else self.width() - 2

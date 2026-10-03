@@ -33,7 +33,8 @@ UI tests run headless (`QT_QPA_PLATFORM=offscreen`, set in `tests/conftest.py`).
 ```
 colorize/
   core/      color math, no Qt: hex/OKLCH, harmony rules, sRGB gamut mapping,
-             NumPy OKLab renderer, k-means palette extraction, image loading (ICC -> sRGB)
+             NumPy OKLab renderer, k-means palette extraction, image loading (ICC -> sRGB),
+             WCAG 2.x / APCA contrast, color vision deficiency simulation
   model/     Palette, Document (+ QUndoStack), AppState, HarmonyModel, undoable commands
   ui/        shell, panels, document canvas, preferences
     themes/  tokens (dark / gray / light), generated QSS, recolored SVG icons
@@ -65,6 +66,29 @@ Open an image (File › Open, Ctrl+Shift+O, or drop it on the window) to extract
 - The Eyedropper (I) samples the image (point, 3×3 or 5×5 average in linear light).
   *Sample Screen Color* (Shift+I) picks from anywhere on any monitor.
 
+## Accessibility
+
+**Contrast** (tool C): the foreground is the text, the background is the background
+(X swaps them; Alt+click with the Eyedropper sets the background).
+
+- WCAG 2.x ratio with AA / AAA / large text / UI (3:1) results. Ratios are shown
+  truncated to two decimals, like the WebAIM checker, so 4.499 never reads as 4.50.
+- APCA Lc (APCA-W3 0.0.98G-4g constants) with bronze-level guidance. Shown as
+  guidance only: WCAG 2.x is the conformance standard.
+- *Fix for*: the closest text colors that pass the chosen target, found by moving only
+  OKLCH lightness (hue kept, chroma reduced just enough to stay in sRGB).
+
+**Color blindness** (tool B):
+
+- Simulation with the Machado, Oliveira & Fernandes (2009) matrices in linear RGB,
+  severity 0–100% (below 100% is the -anomaly form), plus achromatopsia. The table is
+  verified against the copy in the `colour-science` library.
+- The panel shows the active palette for each type and warns about pairs that become
+  hard to tell apart (OKLab distance < 0.06 after simulation).
+- *View › Proof Colors* (Ctrl+Y) shows palettes and images as seen with the chosen
+  type, like Photoshop's color blindness proof. The eyedropper still reads the
+  original colors.
+
 ## Palette files
 
 `File › Save` writes UTF-8 JSON:
@@ -82,6 +106,8 @@ Rules: `core/` stays Qt-free; the UI never edits a Palette directly, only throug
 |---|---|
 | V I W E C B H Z | Select, Eyedropper, Harmony, Extract, Contrast, Color Blindness, Hand, Zoom |
 | Shift+I | Sample a color from anywhere on screen |
+| Alt+click (Eyedropper) | Set the background color instead |
+| Ctrl+Y | Proof colors (color blindness simulation) |
 | Ctrl+O / Ctrl+Shift+O | Open palette or image / open image |
 | Ctrl+S / Ctrl+Shift+S | Save / save as |
 | Space (hold) | Temporary Hand tool |

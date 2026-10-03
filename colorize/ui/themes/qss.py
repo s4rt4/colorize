@@ -163,6 +163,9 @@ QLabel[role="badge"] {
     color: $text_muted; border: 1px solid $border_input; border-radius: 3px;
     padding: 0 5px; font-size: 11px;
 }
+QLabel[role="pass"] { color: $success; font-weight: 600; }
+QLabel[role="fail"] { color: $danger; font-weight: 600; }
+QLabel[role="metric"] { font-size: 26px; font-weight: 300; color: $text; }
 #panelFooter { border-top: 1px solid $border; }
 #panelFooter QToolButton { padding: 2px; }
 

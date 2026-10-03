@@ -14,7 +14,8 @@ THEME_LABELS = {
     "light": "Light",
 }
 
-ACCENT_KEYS = ("accent", "accent_hover", "accent_text")
+# The only tokens allowed to carry hue: the accent and pass/fail status colors.
+ACCENT_KEYS = ("accent", "accent_hover", "accent_text", "success", "danger")
 
 THEMES = {
     "dark": {
@@ -33,6 +34,8 @@ THEMES = {
         "accent": "#378EF0",
         "accent_hover": "#4B9CF5",
         "accent_text": "#FFFFFF",
+        "success": "#2D9D78",
+        "danger": "#E34850",
     },
     "gray": {
         "bg_app": "#3C3C3C",
@@ -50,6 +53,8 @@ THEMES = {
         "accent": "#378EF0",
         "accent_hover": "#4B9CF5",
         "accent_text": "#FFFFFF",
+        "success": "#33AB84",
+        "danger": "#EC5B62",
     },
     "light": {
         "bg_app": "#D6D6D6",
@@ -67,5 +72,7 @@ THEMES = {
         "accent": "#1473E6",
         "accent_hover": "#0D66D0",
         "accent_text": "#FFFFFF",
+        "success": "#12805C",
+        "danger": "#C9252D",
     },
 }

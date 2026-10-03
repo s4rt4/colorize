@@ -25,9 +25,9 @@ WORKSPACES = {
 
 # Relative heights of the tab groups above (same order).
 WORKSPACE_HEIGHTS = {
-    "essentials": (60, 22, 18),
+    "essentials": (52, 33, 15),
     "palette": (45, 55),
-    "accessibility": (30, 30, 40),
+    "accessibility": (48, 34, 18),
 }
 
 WORKSPACE_LABELS = {

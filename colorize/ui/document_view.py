@@ -38,7 +38,10 @@ class DocumentView(QScrollArea):
         self.grid.installEventFilter(self)  # installed last, so it runs before the navigator
         state.toolChanged.connect(self._update_cursor)
         theme.changed.connect(self._update_cursor)
+        state.proofChanged.connect(self._update_proof)
+        state.cvdChanged.connect(self._update_proof)
         self._update_cursor()
+        self._update_proof()
 
     @property
     def title(self) -> str:
@@ -82,6 +85,9 @@ class DocumentView(QScrollArea):
             return
         super().wheelEvent(event)
 
+    def _update_proof(self, *_args) -> None:
+        self.grid.set_color_filter(self._state.proof_filter())
+
     def _update_cursor(self, *_args) -> None:
         cursor = tool_cursor(self._theme, self._state.tool)
         if cursor is None:
@@ -100,6 +106,10 @@ class DocumentView(QScrollArea):
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 index = self.grid.index_at(event.position().toPoint())
                 if index >= 0:
-                    self._state.set_foreground(self.document.palette.color(index))
+                    color = self.document.palette.color(index)
+                    if event.modifiers() & Qt.KeyboardModifier.AltModifier:  # as in Photoshop
+                        self._state.set_background(color)
+                    else:
+                        self._state.set_foreground(color)
             return True
         return super().eventFilter(obj, event)

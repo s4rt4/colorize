@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from colorize.core.color import to_oklch
+from colorize.core.cvd import simulate_rgb8
 from colorize.core.extract import average_color, extract_palette
 from colorize.core.image import LoadedImage, pixel_block, sample_pixels
 from colorize.model.app_state import EXTRACT_COUNT_RANGE
@@ -97,12 +98,15 @@ class ImageView(QWidget):
         self._state = state
         self._theme = theme
         self._qimage = to_qimage(image)
+        self._proof_key = None
+        self._proof_image: QImage | None = None
         self._pixels, self._positions = sample_pixels(image)
         self._colors: list[str] = []
         self._shares: list[float] = []
         self._markers: list[QPointF] = []  # fractions of image width/height
         self._drag_marker: int | None = None
         self._sampling = False
+        self._sample_to_background = False
         self._zoom = 1.0
         self._fitted = False
 
@@ -173,6 +177,9 @@ class ImageView(QWidget):
         state.extractCountChanged.connect(self._on_count_changed)
         state.toolChanged.connect(self._update_cursor)
         theme.changed.connect(self._on_theme_changed)
+        state.proofChanged.connect(self._update_proof)
+        state.cvdChanged.connect(self._update_proof)
+        self._update_proof()
         self._update_cursor()
         self._update_canvas_size()
         self.extract()
@@ -322,12 +329,29 @@ class ImageView(QWidget):
 
     # ----- painting -----
 
+    def displayed_image(self) -> QImage:
+        """The image as drawn: simulated while proofing (cached per type/severity)."""
+        if not self._state.proof:
+            return self._qimage
+        key = (self._state.cvd_type, self._state.cvd_severity)
+        if key != self._proof_key:
+            simulated = LoadedImage(simulate_rgb8(self.image.rgb, *key), self.image.alpha, None, True)
+            self._proof_image = to_qimage(simulated)
+            self._proof_key = key
+        return self._proof_image
+
+    def _update_proof(self, *_args) -> None:
+        self.strip.set_color_filter(self._state.proof_filter())
+        self.canvas.update()
+
     def paint_canvas(self, p: QPainter) -> None:
         p.fillRect(p.viewport(), self._theme.color("bg_app"))
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, self._zoom < 1)
-        p.drawImage(self.image_rect(), self._qimage)
+        p.drawImage(self.image_rect(), self.displayed_image())
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        proof = self._state.proof_filter()
         for i, color in enumerate(self._colors):
+            color = proof(color) if proof else color
             center = self.marker_point(i)
             radius = MARKER_RADIUS + (2 if i == self._drag_marker else 0)
             p.setPen(QPen(QColor(0, 0, 0, 150), 1))
@@ -351,7 +375,8 @@ class ImageView(QWidget):
         pos = event.position()
         if self._state.tool == "eyedropper":
             self._sampling = True
-            self._sample_foreground(pos)
+            self._sample_to_background = bool(event.modifiers() & Qt.KeyboardModifier.AltModifier)
+            self._sample_foreground(pos, self._sample_to_background)
             return
         self._drag_marker = self._marker_at(pos)
         if self._drag_marker is not None:
@@ -360,7 +385,7 @@ class ImageView(QWidget):
     def canvas_move(self, event) -> None:
         pos = event.position()
         if self._sampling:
-            self._sample_foreground(pos)
+            self._sample_foreground(pos, self._sample_to_background)
         elif self._drag_marker is not None:
             self._move_marker(pos)
         elif self._state.tool not in ("eyedropper", "hand", "zoom"):
@@ -373,10 +398,11 @@ class ImageView(QWidget):
             self._drag_marker = None
             self.canvas.update()
 
-    def _sample_foreground(self, pos: QPointF) -> None:
+    def _sample_foreground(self, pos: QPointF, to_background: bool = False) -> None:
+        """Eyedropper: sets the foreground, or the background with Alt (as in Photoshop)."""
         pixel = self.image_pixel_at(pos)
         if pixel is not None:
-            self._state.set_foreground(self.sample(*pixel))
+            (self._state.set_background if to_background else self._state.set_foreground)(self.sample(*pixel))
 
     def _move_marker(self, pos: QPointF) -> None:
         x, y = self.image_pixel_at(pos, clamp=True)

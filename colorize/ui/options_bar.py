@@ -10,13 +10,14 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSlider,
     QSpinBox,
     QStackedWidget,
     QWidget,
 )
 
 from colorize.model.app_state import EXTRACT_COUNT_RANGE, SAMPLE_SIZES
+from colorize.ui.contrast_panel import method_combo, target_combo
+from colorize.ui.cvd_panel import proof_checkbox, severity_slider, type_combo
 from colorize.ui.harmony_panel import rule_combo
 from colorize.ui.tools import TOOLS
 
@@ -78,10 +79,8 @@ class OptionsBar(QWidget):
                 buttons.append(button)
             return buttons
 
-        severity = QSlider(Qt.Orientation.Horizontal)
-        severity.setRange(0, 100)
-        severity.setValue(100)
-        severity.setFixedWidth(120)
+        severity = severity_slider(state)
+        severity.setFixedWidth(140)
         sample_size = _combo("Point Sample", "3 by 3 Average", "5 by 5 Average")
         sample_size.setCurrentIndex(SAMPLE_SIZES.index(state.sample_size))
         sample_size.currentIndexChanged.connect(lambda i: state.set_sample_size(SAMPLE_SIZES[i]))
@@ -118,14 +117,19 @@ class OptionsBar(QWidget):
                 _hint("Or drop an image on the window · drag a marker on the image to re-sample it"),
             ),
             "contrast": _row(
-                "Algorithm:", _disabled(_combo("WCAG 2.x", "APCA")), "Target:", _disabled(_combo("AA", "AAA")), _badge("M3")
+                "Method:",
+                method_combo(state),
+                "Target:",
+                target_combo(state),
+                _hint("Text = foreground, background = background · Alt+click with the Eyedropper sets the background"),
             ),
             "cvd": _row(
                 "Type:",
-                _disabled(_combo("Protan", "Deutan", "Tritan", "Achromatopsia")),
+                type_combo(state),
                 "Severity:",
-                _disabled(severity),
-                _badge("M3"),
+                severity,
+                proof_checkbox(state),
+                _hint("Ctrl+Y toggles the proof"),
             ),
             "hand": _row(*view_buttons()),
             "zoom": _row(*view_buttons(), _hint("Click to zoom in · Alt+click to zoom out")),
