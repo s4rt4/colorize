@@ -13,12 +13,12 @@ WORKSPACES = {
         ("history", "export", "library", "gradient"),
     ),
     "palette": (
-        ("swatches", "library", "export"),
+        ("swatches", "library", "export", "print"),
         ("color", "harmony", "scale", "gradient"),
     ),
     "accessibility": (
         ("contrast",),
-        ("cvd",),
+        ("cvd", "print"),
         ("color", "swatches"),
     ),
 }

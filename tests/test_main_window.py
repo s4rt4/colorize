@@ -21,7 +21,7 @@ def test_shell_layout(window):
 
 def test_workspaces_switch_and_reset(window, qtbot):
     window._apply_workspace("accessibility")
-    assert open_panels(window) == {"contrast", "cvd", "color", "swatches"}
+    assert open_panels(window) == {p for group in WORKSPACES["accessibility"] for p in group}
     window.docks["contrast"].toggleView(False)
     window._reset_workspace()
     assert "contrast" in open_panels(window)
@@ -175,4 +175,23 @@ def test_settings_persist_theme_workspace_and_layout(qtbot, theme, settings, set
     qtbot.addWidget(win2)
     win2.show()
     assert win2._workspace == "accessibility"
-    assert open_panels(win2) == {"contrast", "cvd", "color", "swatches", "history"}
+    assert open_panels(win2) == {p for group in WORKSPACES["accessibility"] for p in group} | {"history"}
+
+
+def test_every_panel_survives_a_save_and_restore(qtbot, theme, settings, settings_path):
+    """Panels outside the startup workspace must still restore open (ADS only restores
+    docks it has seen in an area)."""
+    from PyQt6.QtCore import QSettings
+
+    win = MainWindow(theme, settings)
+    win.ask_save_changes = lambda doc: "discard"
+    qtbot.addWidget(win)
+    win.show()
+    for dock in win.docks.values():
+        dock.toggleView(True)
+    win.close()
+    win2 = MainWindow(theme, QSettings(settings_path, QSettings.Format.IniFormat))
+    win2.ask_save_changes = lambda doc: "discard"
+    qtbot.addWidget(win2)
+    win2.show()
+    assert open_panels(win2) == set(win2.docks)

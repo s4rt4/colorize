@@ -50,6 +50,7 @@ from colorize.ui.library_panel import LibraryPanel
 from colorize.ui.options_bar import OptionsBar
 from colorize.ui.panels import ColorPanel, HistoryPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
+from colorize.ui.print_panel import PrintPanel
 from colorize.ui.scale_panel import ScalePanel
 from colorize.ui.screen_sampler import ScreenSampler
 from colorize.ui.themes import THEME_LABELS, THEME_ORDER
@@ -278,16 +279,17 @@ class MainWindow(QMainWindow):
             "cvd": CvdPanel(self.theme, self.state),
             "history": HistoryPanel(self.undo_group),
             "export": ExportPanel(self.settings),
+            "print": PrintPanel(self.theme, self.settings),
             "library": LibraryPanel(
                 self.theme, self.library, self.actions["save_to_library"], self.actions["import_files"], self.state
             ),
         }
         titles = {
             "color": "Color", "swatches": "Swatches", "harmony": "Harmony", "scale": "Scale", "gradient": "Gradient", "contrast": "Contrast",
-            "cvd": "Color Blindness", "history": "History", "export": "Export", "library": "Libraries",
+            "cvd": "Color Blindness", "history": "History", "export": "Export", "print": "Print", "library": "Libraries",
         }
         icons = {"color": "color", "swatches": "swatches", "harmony": "harmony", "scale": "scale", "gradient": "gradient", "contrast": "contrast",
-                 "cvd": "cvd", "history": "history", "export": "export", "library": "library"}
+                 "cvd": "cvd", "history": "history", "export": "export", "print": "print", "library": "library"}
         self.docks: dict[str, ads.CDockWidget] = {}
         for key, widget in self.panels.items():
             dock = ads.CDockWidget(self.dock_manager, titles[key])
@@ -495,6 +497,7 @@ class MainWindow(QMainWindow):
         self.panels["swatches"].set_document(doc)
         self.panels["cvd"].set_document(doc)
         self.panels["export"].set_document(doc)
+        self.panels["print"].set_document(doc)
         self.center.setCurrentIndex(0 if self.doc_tabs.count() else 1)
         self._refresh_document_ui()
 
@@ -919,6 +922,10 @@ class MainWindow(QMainWindow):
             previous = area
         for panel, dock in self.docks.items():
             if panel not in placed:
+                if dock.dockAreaWidget() is None:
+                    # A dock never added to an area is unknown to ADS's restoreState(), so a
+                    # saved layout that has it open would come back with it closed.
+                    manager.addDockWidgetTabToArea(dock, previous)
                 dock.toggleView(False)
         self._workspace = key
         self._rebuild_workspace_menu()
