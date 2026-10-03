@@ -44,8 +44,8 @@ def test_apply_writes_icons_and_sets_palette(qapp, theme):
     theme.changed.connect(events.append)
     theme.apply("dark")
     assert events == ["dark"]
-    assert theme.icon_path("swatches").exists()
-    assert theme.icon_path("check", "-on-accent").exists()
+    assert theme.icon_path("check", "-on-accent").exists()  # referenced by the stylesheet
+    assert not theme.icon_path("swatches").exists()  # panel/tool icons render from memory
     assert qapp.palette().color(QPalette.ColorRole.Window).name().upper() == THEMES["dark"]["bg_panel"]
     assert THEMES["dark"]["bg_app"].lower() in qapp.styleSheet().lower()
 
@@ -66,3 +66,30 @@ def test_unknown_theme_falls_back_to_default(theme):
     theme.apply("dark")
     theme.apply("purple")
     assert theme.name == "gray"
+
+
+def test_stylesheet_icons_written_once(theme, monkeypatch):
+    from pathlib import Path
+
+    theme.apply("light")
+    writes = []
+    original = Path.write_text
+    monkeypatch.setattr(Path, "write_text", lambda self, *a, **k: writes.append(self) or original(self, *a, **k))
+    theme.apply("dark")
+    theme.apply("light")  # cache is current: the stamp short-circuits all writes
+    assert all("light" not in str(path) for path in writes)
+
+
+def test_icons_render_sharp_at_high_dpi(theme):
+    from PyQt6.QtCore import QSize
+    from PyQt6.QtGui import QIcon
+
+    icon = theme.icon("harmony")
+    pixmap = icon.pixmap(QSize(18, 18), 2.0)
+    assert pixmap.devicePixelRatio() == 2.0
+    assert pixmap.size() == QSize(36, 36)
+    image = pixmap.toImage()
+    assert any(image.pixelColor(x, 18).alpha() > 0 for x in range(36))
+    disabled = icon.pixmap(QSize(18, 18), 1.0, QIcon.Mode.Disabled).toImage()
+    normal = icon.pixmap(QSize(18, 18), 1.0).toImage()
+    assert disabled != normal

@@ -9,12 +9,10 @@ class Tool:
     label: str
     icon: str
     shortcut: str
-    milestone: str = ""  # milestone where the tool becomes functional; "" = works now
 
     @property
     def tooltip(self) -> str:
-        text = f"{self.label} Tool ({self.shortcut})"
-        return f"{text}\nArrives in {self.milestone}" if self.milestone else text
+        return f"{self.label} Tool ({self.shortcut})"
 
 
 _TOOL_LIST = (

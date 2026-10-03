@@ -1,8 +1,4 @@
-"""Context-sensitive options bar under the menu bar, as in Photoshop/Illustrator.
-
-Controls for features of later milestones are present but disabled, so the
-layout is settled now.
-"""
+"""Context-sensitive options bar under the menu bar, as in Photoshop/Illustrator."""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -22,12 +18,6 @@ from colorize.ui.harmony_panel import rule_combo
 from colorize.ui.tools import TOOLS
 
 
-def _badge(milestone: str) -> QLabel:
-    label = QLabel(milestone)
-    label.setProperty("role", "badge")
-    label.setToolTip(f"This tool arrives in milestone {milestone}")
-    return label
-
 
 def _row(*items) -> QWidget:
     page = QWidget()
@@ -41,10 +31,6 @@ def _row(*items) -> QWidget:
     layout.addStretch(1)
     return page
 
-
-def _disabled(widget):
-    widget.setEnabled(False)
-    return widget
 
 
 def _combo(*items) -> QComboBox:

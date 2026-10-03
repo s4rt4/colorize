@@ -1,14 +1,16 @@
 """Theme switching: palette + stylesheet + recolored icons, applied live."""
 
+import hashlib
 from pathlib import Path
 
 from PyQt6 import sip
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QIcon, QPalette
+from PyQt6.QtCore import QByteArray, QObject, QPoint, QRect, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPalette, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication
 
-from colorize.ui.themes.icons import ICONS, svg_for
-from colorize.ui.themes.qss import build_qss
+from colorize.ui.themes.icons import svg_for
+from colorize.ui.themes.qss import QSS_ICON_FILES, build_qss
 from colorize.ui.themes.tokens import (
     DEFAULT_THEME,
     THEME_LABELS,
@@ -60,6 +62,40 @@ def build_palette(tokens: dict[str, str]) -> QPalette:
     return pal
 
 
+class SvgIconEngine(QIconEngine):
+    """Renders an icon straight from SVG text (one per mode), sharp at any size and
+    device pixel ratio, with no files involved."""
+
+    def __init__(self, svgs: dict):
+        super().__init__()
+        self._svgs = svgs
+        self._renderers: dict = {}
+
+    def _renderer(self, mode) -> QSvgRenderer:
+        mode = mode if mode in self._svgs else QIcon.Mode.Normal
+        if mode not in self._renderers:
+            self._renderers[mode] = QSvgRenderer(QByteArray(self._svgs[mode].encode()))
+        return self._renderers[mode]
+
+    def paint(self, painter, rect, mode, state):
+        self._renderer(mode).render(painter, QRectF(rect))
+
+    def scaledPixmap(self, size, mode, state, scale):
+        pixmap = QPixmap(size * scale)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        self.paint(painter, QRect(QPoint(0, 0), pixmap.size()), mode, state)
+        painter.end()
+        pixmap.setDevicePixelRatio(scale)
+        return pixmap
+
+    def pixmap(self, size, mode, state):
+        return self.scaledPixmap(size, mode, state, 1.0)
+
+    def clone(self):
+        return SvgIconEngine(self._svgs)
+
+
 class ThemeManager(QObject):
     """Owns the active theme. Widgets read tokens from here and re-render on ``changed``."""
 
@@ -71,6 +107,7 @@ class ThemeManager(QObject):
         self._cache = Path(icon_cache_dir)
         self._name = ""
         self._bound: list[tuple[object, str]] = []
+        self._icons: dict[tuple, QIcon] = {}
         app.setStyle("Fusion")
 
     @property
@@ -90,7 +127,8 @@ class ThemeManager(QObject):
         if name == self._name:
             return
         self._name = name
-        icon_dir = self._write_icons(name)
+        self._icons.clear()
+        icon_dir = self._write_stylesheet_icons(name)
         self._app.setPalette(build_palette(self.tokens))
         self._app.setStyleSheet(build_qss(self.tokens, icon_dir.as_posix()))
         hints = self._app.styleHints()
@@ -113,24 +151,51 @@ class ThemeManager(QObject):
         return self._cache / self._name / f"{name}{variant}.svg"
 
     def icon(self, name: str, muted: bool = False) -> QIcon:
-        icon = QIcon()
-        icon.addFile(str(self.icon_path(name, "-muted" if muted else "")))
-        icon.addFile(str(self.icon_path(name, "-disabled")), mode=QIcon.Mode.Disabled)
-        return icon
+        key = (name, muted)
+        if key not in self._icons:
+            tokens = self.tokens
+            engine = SvgIconEngine(
+                {
+                    QIcon.Mode.Normal: svg_for(name, tokens["text_muted" if muted else "text"]),
+                    QIcon.Mode.Active: svg_for(name, tokens["text_muted" if muted else "text"]),
+                    QIcon.Mode.Selected: svg_for(name, tokens["accent_text"]),
+                    QIcon.Mode.Disabled: svg_for(name, tokens["text_disabled"]),
+                }
+            )
+            self._icons[key] = QIcon(engine)
+        return self._icons[key]
 
     def bind_icon(self, obj, name: str) -> None:
         """Set ``obj``'s icon now and again on every theme change (anything with ``setIcon``)."""
         obj.setIcon(self.icon(name))
         self._bound.append((obj, name))
 
-    def _write_icons(self, name: str) -> Path:
+    def _write_stylesheet_icons(self, name: str) -> Path:
+        """Qt stylesheets can only reference image files, so the few icons the QSS uses
+        are written to the cache. A stamp of their content skips all file I/O when the
+        cache is current (every file touch costs milliseconds on Windows)."""
         tokens = THEMES[name]
         folder = self._cache / name
+        files = {}
+        for file_name in sorted(QSS_ICON_FILES):
+            icon_name, suffix = _split_variant(file_name)
+            files[file_name] = svg_for(icon_name, tokens[_ICON_VARIANTS[suffix]])
+        digest = hashlib.sha1("".join(files.values()).encode()).hexdigest()
+        stamp = folder / ".stamp"
+        try:
+            if stamp.read_text(encoding="utf-8") == digest:
+                return folder
+        except OSError:
+            pass
         folder.mkdir(parents=True, exist_ok=True)
-        for icon_name in ICONS:
-            for suffix, token in _ICON_VARIANTS.items():
-                path = folder / f"{icon_name}{suffix}.svg"
-                svg = svg_for(icon_name, tokens[token])
-                if not path.exists() or path.read_text(encoding="utf-8") != svg:
-                    path.write_text(svg, encoding="utf-8")
+        for file_name, svg in files.items():
+            (folder / f"{file_name}.svg").write_text(svg, encoding="utf-8")
+        stamp.write_text(digest, encoding="utf-8")
         return folder
+
+
+def _split_variant(file_name: str) -> tuple[str, str]:
+    for suffix in ("-on-accent", "-disabled", "-muted"):
+        if file_name.endswith(suffix):
+            return file_name[: -len(suffix)], suffix
+    return file_name, ""

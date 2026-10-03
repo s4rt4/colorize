@@ -5,6 +5,7 @@
 ``name-disabled.svg`` uses ``text_disabled``, ``name-on-accent.svg`` uses ``accent_text``.
 """
 
+import re
 from string import Template
 
 _QSS = Template(r"""
@@ -223,6 +224,10 @@ ads--CAutoHideDockContainer #dockAreaAutoHideButton { qproperty-icon: url($icons
 #autoHideTitleLabel { color: $text; padding-left: 6px; background: transparent; }
 ads--CResizeHandle { background: $bg_app; }
 """)
+
+
+# Icon files the stylesheet references, e.g. "chevron-down-muted" (the only ones written to disk).
+QSS_ICON_FILES = frozenset(re.findall(r"\$icons/([\w-]+)\.svg", _QSS.template))
 
 
 def build_qss(tokens: dict[str, str], icon_dir: str) -> str:

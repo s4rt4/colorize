@@ -8,8 +8,6 @@ import json
 import math
 import re
 
-from coloraide import Color
-
 from colorize.core.color import format_oklch, hex_to_rgb, normalize_hex
 
 SYNTAXES = ("hex", "rgb", "hsl", "oklch")
@@ -32,6 +30,8 @@ def format_color(hex_color: str, syntax: str) -> str:
     if syntax == "rgb":
         return "rgb({} {} {})".format(*hex_to_rgb(hex_color))
     if syntax == "hsl":
+        from coloraide import Color  # slow import; only exports need HSL
+
         hue, saturation, lightness = Color(hex_color).convert("hsl").coords(nans=False)
         return f"hsl({_num(hue, 1)} {_num(saturation * 100, 1)}% {_num(lightness * 100, 1)}%)"
     if syntax == "oklch":

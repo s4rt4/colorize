@@ -8,8 +8,6 @@ UTF-16BE name, 4-char model, float32 values, u16 kind`` (0 global, 1 spot, 2 nor
 
 import struct
 
-from coloraide import Color
-
 from colorize.core.color import hex_to_rgb, normalize_hex, rgb_to_hex
 
 ASE_SIGNATURE = b"ASEF"
@@ -63,6 +61,8 @@ def _model_to_hex(model: bytes, values: tuple) -> str:
         return rgb_to_hex(*(round(255 * (1 - min(1.0, v * (1 - k) + k))) for v in (c, m, y)))
     if model == b"LAB ":  # Adobe stores L 0-1 (x100) and a/b as-is, D50
         lightness, a, b = values
+        from coloraide import Color  # slow import; Lab swatches are rare
+
         # coloraide's "lab" space is CIE Lab with a D50 white, as ASE uses.
         srgb = Color("lab", [lightness * 100, a, b]).convert("srgb").fit("srgb")
         return srgb.to_string(hex=True).upper()

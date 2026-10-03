@@ -7,8 +7,7 @@ faster and exact for flat-color images (k never exceeds the number of distinct c
 from dataclasses import dataclass
 
 import numpy as np
-from coloraide import Color
-
+from colorize.core.color import oklab_to_oklch
 from colorize.core.gamut import map_to_srgb
 from colorize.core.oklab import decode_srgb8, encode_srgb, srgb8_to_oklab
 
@@ -68,8 +67,7 @@ def kmeans(points: np.ndarray, weights: np.ndarray, k: int, seed: int = DEFAULT_
 
 
 def _oklab_to_hex(lab) -> str:
-    lightness, chroma, hue = Color("oklab", list(lab)).convert("oklch").coords(nans=False)
-    return map_to_srgb(lightness, chroma, hue).hex
+    return map_to_srgb(*oklab_to_oklch(*(float(v) for v in lab))).hex
 
 
 def extract_palette(pixels: np.ndarray, count: int, seed: int = DEFAULT_SEED) -> list[ExtractedColor]:

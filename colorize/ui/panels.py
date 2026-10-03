@@ -150,37 +150,3 @@ class HistoryPanel(QUndoView):
     def __init__(self, undo_group, parent=None):
         super().__init__(undo_group, parent)
         self.setEmptyLabel("New")
-
-
-class PlaceholderPanel(QWidget):
-    """Stands in for a panel whose feature lands in a later milestone."""
-
-    def __init__(self, theme, icon: str, title: str, milestone: str, description: str, parent=None):
-        super().__init__(parent)
-        self._theme = theme
-        self._icon_name = icon
-        self.icon_label = QLabel()
-        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        heading = _label(title, "heading")
-        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge = _label(f"Coming in {milestone}", "badge")
-        text = _label(description, "muted")
-        text.setWordWrap(True)
-        text.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(6)
-        layout.addStretch(1)
-        layout.addWidget(self.icon_label)
-        layout.addWidget(heading)
-        layout.addWidget(badge, 0, Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(text)
-        layout.addStretch(2)
-
-        theme.changed.connect(self._refresh_icon)
-        self._refresh_icon()
-
-    def _refresh_icon(self, *_):
-        self.icon_label.setPixmap(self._theme.icon(self._icon_name, muted=True).pixmap(32, 32))
