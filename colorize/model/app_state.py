@@ -9,11 +9,15 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from colorize.core.color import normalize_hex
 
 TOOL_KEYS = ("select", "eyedropper", "harmony", "extract", "contrast", "cvd", "hand", "zoom")
+SAMPLE_SIZES = (1, 3, 5)  # eyedropper: point, 3x3 and 5x5 average
+EXTRACT_COUNT_RANGE = (2, 16)
 
 
 class AppState(QObject):
     colorsChanged = pyqtSignal()
     toolChanged = pyqtSignal(str)
+    sampleSizeChanged = pyqtSignal(int)
+    extractCountChanged = pyqtSignal(int)
 
     DEFAULT_FOREGROUND = "#000000"
     DEFAULT_BACKGROUND = "#FFFFFF"
@@ -23,6 +27,8 @@ class AppState(QObject):
         self._foreground = self.DEFAULT_FOREGROUND
         self._background = self.DEFAULT_BACKGROUND
         self._tool = "select"
+        self._sample_size = 1
+        self._extract_count = 5
 
     @property
     def foreground(self) -> str:
@@ -35,6 +41,28 @@ class AppState(QObject):
     @property
     def tool(self) -> str:
         return self._tool
+
+    @property
+    def sample_size(self) -> int:
+        return self._sample_size
+
+    @property
+    def extract_count(self) -> int:
+        return self._extract_count
+
+    def set_sample_size(self, size: int) -> None:
+        if size not in SAMPLE_SIZES:
+            raise ValueError(f"sample size must be one of {SAMPLE_SIZES}")
+        if size != self._sample_size:
+            self._sample_size = size
+            self.sampleSizeChanged.emit(size)
+
+    def set_extract_count(self, count: int) -> None:
+        low, high = EXTRACT_COUNT_RANGE
+        count = max(low, min(count, high))
+        if count != self._extract_count:
+            self._extract_count = count
+            self.extractCountChanged.emit(count)
 
     def set_foreground(self, color: str) -> None:
         color = normalize_hex(color)

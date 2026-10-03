@@ -59,6 +59,33 @@ def oklab_to_srgb8(lightness, a, b) -> tuple[np.ndarray, np.ndarray]:
     return rgb, _in_gamut(red, green, blue)
 
 
+_DECODE = np.linspace(0.0, 1.0, 256)
+_DECODE = np.where(_DECODE <= 0.04045, _DECODE / 12.92, ((_DECODE + 0.055) / 1.055) ** 2.4)
+
+
+def decode_srgb8(rgb8: np.ndarray) -> np.ndarray:
+    """8-bit sRGB to linear-light float64 (exact 256-entry table)."""
+    return _DECODE[np.asarray(rgb8, dtype=np.uint8)]
+
+
+def srgb8_to_oklab(rgb8: np.ndarray) -> np.ndarray:
+    """(..., 3) uint8 sRGB to (..., 3) float64 OKLab. Float64 so cluster means of a
+    flat color round-trip to the same hex."""
+    linear = decode_srgb8(rgb8)
+    r, g, b = linear[..., 0], linear[..., 1], linear[..., 2]
+    l_ = np.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+    m_ = np.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+    s_ = np.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+    return np.stack(
+        [
+            0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_,
+            1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_,
+            0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
+        ],
+        axis=-1,
+    )
+
+
 def oklch_to_srgb(lightness, chroma, hue_deg) -> tuple[np.ndarray, np.ndarray]:
     """Return (clipped sRGB floats in [0, 1] with shape (..., 3), in-gamut mask).
     Exact (no lookup table); used where accuracy matters more than speed."""

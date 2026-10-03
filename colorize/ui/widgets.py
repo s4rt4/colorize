@@ -4,7 +4,7 @@ import math
 
 from PyQt6.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QSizePolicy, QWidget
+from PyQt6.QtWidgets import QApplication, QSizePolicy, QToolTip, QWidget
 
 from colorize.ui.color_picker import pick_color
 from colorize.ui.color_render import paint_swatch
@@ -306,3 +306,62 @@ class ForegroundBackground(QWidget):
             color = pick_color(self._theme, self, self._state.background, "Background Color")
             if color:
                 self._state.set_background(color)
+
+
+class ColorStrip(QWidget):
+    """Row of equal-width color cells; click one to emit it. Optional per-color shares
+    are shown in the tooltip (e.g. how much of an image a color covers)."""
+
+    colorClicked = pyqtSignal(str)
+
+    def __init__(self, theme, height: int = 40, parent=None):
+        super().__init__(parent)
+        self._theme = theme
+        self._colors: list[str] = []
+        self._shares: list[float] = []
+        self.setFixedHeight(height)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        theme.changed.connect(self.update)
+
+    @property
+    def colors(self) -> list[str]:
+        return list(self._colors)
+
+    def set_colors(self, colors, shares=()) -> None:
+        self._colors = list(colors)
+        self._shares = list(shares)
+        self.update()
+
+    def cell_rect(self, index: int) -> QRect:
+        n = max(len(self._colors), 1)
+        x0 = round(index * self.width() / n)
+        x1 = round((index + 1) * self.width() / n)
+        return QRect(x0, 0, x1 - x0, self.height())
+
+    def index_at(self, x: float) -> int:
+        if not self._colors:
+            return -1
+        return max(0, min(int(x / max(self.width(), 1) * len(self._colors)), len(self._colors) - 1))
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.fillRect(self.rect(), self._theme.color("bg_panel"))
+        border = self._theme.color("border_input")
+        for i, color in enumerate(self._colors):
+            paint_swatch(p, self.cell_rect(i), color, border)
+
+    def mousePressEvent(self, event):
+        index = self.index_at(event.position().x())
+        if event.button() == Qt.MouseButton.LeftButton and index >= 0:
+            self.colorClicked.emit(self._colors[index])
+
+    def event(self, event):
+        if event.type() == event.Type.ToolTip:
+            index = self.index_at(event.pos().x())
+            if index >= 0:
+                text = self._colors[index]
+                if index < len(self._shares):
+                    text += f"  ·  {self._shares[index] * 100:.0f}% of the image"
+                QToolTip.showText(event.globalPos(), text, self)
+            return True
+        return super().event(event)

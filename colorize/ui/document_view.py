@@ -1,9 +1,9 @@
-"""Center canvas for one open palette: large swatches, zoom, Hand/Zoom tool handling."""
+"""Center canvas for one open palette: large swatches, zoom, tool handling."""
 
-from PyQt6.QtCore import QEvent, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QCursor
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtWidgets import QFrame, QScrollArea
 
+from colorize.ui.navigation import CanvasNavigator, tool_cursor
 from colorize.ui.widgets import SwatchGrid
 
 BASE_CHIP = 64
@@ -19,9 +19,6 @@ class DocumentView(QScrollArea):
         self._state = state
         self._theme = theme
         self._zoom = 1.0
-        self._tool = state.tool
-        self._pan_origin: QPoint | None = None
-        self._pan_start = (0, 0)
 
         self.setObjectName("canvas")
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -37,10 +34,15 @@ class DocumentView(QScrollArea):
         )
         self.grid.set_document(document)
         self.setWidget(self.grid)
-        self.grid.installEventFilter(self)
-        state.toolChanged.connect(self._on_tool_changed)
+        self._navigator = CanvasNavigator(self, self.grid, state, self.zoom_in, self.zoom_out)
+        self.grid.installEventFilter(self)  # installed last, so it runs before the navigator
+        state.toolChanged.connect(self._update_cursor)
         theme.changed.connect(self._update_cursor)
         self._update_cursor()
+
+    @property
+    def title(self) -> str:
+        return self.document.palette.name
 
     @property
     def zoom(self) -> float:
@@ -80,45 +82,24 @@ class DocumentView(QScrollArea):
             return
         super().wheelEvent(event)
 
-    # ----- Hand and Zoom tools act on the canvas instead of the swatches -----
-
-    def _on_tool_changed(self, tool: str) -> None:
-        self._tool = tool
-        self._pan_origin = None
-        self._update_cursor()
-
     def _update_cursor(self, *_args) -> None:
-        if self._tool == "hand":
-            self.grid.setCursor(Qt.CursorShape.OpenHandCursor)
-        elif self._tool == "zoom":
-            pixmap = self._theme.icon("zoom").pixmap(20, 20)
-            self.grid.setCursor(QCursor(pixmap, 8, 8))
-        else:
+        cursor = tool_cursor(self._theme, self._state.tool)
+        if cursor is None:
             self.grid.unsetCursor()
+        else:
+            self.grid.setCursor(cursor)
 
     def eventFilter(self, obj, event):
-        if obj is not self.grid or self._tool not in ("hand", "zoom"):
-            return super().eventFilter(obj, event)
-        kind = event.type()
-        if kind == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-            if self._tool == "hand":
-                self._pan_origin = event.globalPosition().toPoint()
-                self._pan_start = (self.horizontalScrollBar().value(), self.verticalScrollBar().value())
-                self.grid.setCursor(Qt.CursorShape.ClosedHandCursor)
-            elif event.modifiers() & Qt.KeyboardModifier.AltModifier:
-                self.zoom_out()
-            else:
-                self.zoom_in()
-            return True
-        if kind == QEvent.Type.MouseMove and self._pan_origin is not None:
-            delta = event.globalPosition().toPoint() - self._pan_origin
-            self.horizontalScrollBar().setValue(self._pan_start[0] - delta.x())
-            self.verticalScrollBar().setValue(self._pan_start[1] - delta.y())
-            return True
-        if kind == QEvent.Type.MouseButtonRelease:
-            self._pan_origin = None
-            self._update_cursor()
-            return True
-        if kind in (QEvent.Type.MouseButtonDblClick, QEvent.Type.ContextMenu, QEvent.Type.MouseMove):
+        """Eyedropper on a swatch: make it the foreground color instead of selecting it."""
+        if obj is self.grid and self._state.tool == "eyedropper" and event.type() in (
+            QEvent.Type.MouseButtonPress,
+            QEvent.Type.MouseButtonDblClick,
+            QEvent.Type.MouseMove,
+            QEvent.Type.MouseButtonRelease,
+        ):
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                index = self.grid.index_at(event.position().toPoint())
+                if index >= 0:
+                    self._state.set_foreground(self.document.palette.color(index))
             return True
         return super().eventFilter(obj, event)

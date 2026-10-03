@@ -20,9 +20,9 @@ class Tool:
 _TOOL_LIST = (
     Tool("select", "Select", "select", "V"),
     None,
-    Tool("eyedropper", "Eyedropper", "eyedropper", "I", "M2"),
+    Tool("eyedropper", "Eyedropper", "eyedropper", "I"),
     Tool("harmony", "Harmony", "harmony", "W"),
-    Tool("extract", "Extract from Image", "extract", "E", "M2"),
+    Tool("extract", "Extract from Image", "extract", "E"),
     None,
     Tool("contrast", "Contrast Check", "contrast", "C", "M3"),
     Tool("cvd", "Color Blindness Preview", "cvd", "B", "M3"),

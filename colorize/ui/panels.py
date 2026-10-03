@@ -29,7 +29,7 @@ def _label(text: str = "", role: str | None = None) -> QLabel:
 class ColorPanel(QWidget):
     """Foreground/background squares, hex entry and readouts for the foreground color."""
 
-    def __init__(self, theme, state, add_action, parent=None):
+    def __init__(self, theme, state, add_action, sample_action=None, parent=None):
         super().__init__(parent)
         self._state = state
 
@@ -46,7 +46,16 @@ class ColorPanel(QWidget):
         form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(4)
-        form.addRow("Hex", self.hex_edit)
+        hex_row = QHBoxLayout()
+        hex_row.setSpacing(4)
+        hex_row.addWidget(self.hex_edit)
+        if sample_action is not None:
+            sample_button = QToolButton()
+            sample_button.setDefaultAction(sample_action)
+            sample_button.setAutoRaise(True)
+            hex_row.addWidget(sample_button)
+        hex_row.addStretch(1)
+        form.addRow("Hex", hex_row)
         form.addRow("RGB", self.rgb_label)
         form.addRow("OKLCH", self.oklch_label)
 

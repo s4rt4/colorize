@@ -6,7 +6,7 @@ from pathlib import Path
 
 import PyQt6Ads as ads
 from PyQt6.QtCore import QEvent, QSize, Qt, QTimer
-from PyQt6.QtGui import QAction, QActionGroup, QKeySequence, QUndoGroup
+from PyQt6.QtGui import QAction, QActionGroup, QIcon, QKeySequence, QUndoGroup
 from PyQt6.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 
 from colorize import __version__
 from colorize.core.color import format_oklch
+from colorize.core.image import IMAGE_SUFFIXES, ImageLoadError, load_image
 from colorize.formats import colorize_json
 from colorize.model.app_state import AppState
 from colorize.model.harmony import HarmonyModel
@@ -36,13 +37,17 @@ from colorize.model.palette import Document, Palette
 from colorize.ui.color_picker import pick_color
 from colorize.ui.document_view import DocumentView
 from colorize.ui.harmony_panel import HarmonyPanel
+from colorize.ui.image_view import ImageView
 from colorize.ui.options_bar import OptionsBar
 from colorize.ui.panels import ColorPanel, HistoryPanel, PlaceholderPanel, SwatchesPanel
 from colorize.ui.preferences import PreferencesDialog
+from colorize.ui.screen_sampler import ScreenSampler
 from colorize.ui.themes import THEME_LABELS, THEME_ORDER
 from colorize.ui.tools import TOOL_LAYOUT, TOOLS
 from colorize.ui.widgets import ColorChip, ForegroundBackground
 from colorize.ui.workspaces import CUSTOM_PREFIX, PANEL_WIDTH, WORKSPACE_HEIGHTS, WORKSPACE_LABELS, WORKSPACES
+
+LOGO = Path(__file__).parent / "assets" / "logo.svg"
 
 SAMPLE_COLORS = ("#1F3A5F", "#3D6A9E", "#7FB2E5", "#F2C14E", "#F78154", "#4D9078", "#B4436C", "#F2F2F2")
 
@@ -93,6 +98,8 @@ class MainWindow(QMainWindow):
         self.state = state or AppState(self)
         self.undo_group = QUndoGroup(self)
         self.harmony = HarmonyModel(parent=self)
+        self.screen_sampler = ScreenSampler(parent=self)
+        self._target_view: DocumentView | None = None  # palette that palette commands act on
         self._doc_counter = 0
         self._workspace = "essentials"
         self._hidden_snapshot = None  # (dock state, tools visible, options visible) while Tab-hidden
@@ -111,6 +118,8 @@ class MainWindow(QMainWindow):
 
         self.state.toolChanged.connect(self._on_tool_changed)
         self.state.colorsChanged.connect(self._update_status)
+        self.screen_sampler.picked.connect(self.state.set_foreground)
+        self.setAcceptDrops(True)
         self.theme.changed.connect(self._sync_theme_actions)
         self.theme.changed.connect(self._hide_panel_tab_icons)
         QApplication.instance().installEventFilter(self)
@@ -148,6 +157,7 @@ class MainWindow(QMainWindow):
         self.actions = {
             "new": a("&New Palette", lambda: self.new_document(), SK.New, icon="new"),
             "open": a("&Open…", lambda: self.open_file(), SK.Open),
+            "open_image": a("Open &Image…", lambda: self.open_image(), "Ctrl+Shift+O"),
             "save": a("&Save", lambda: self.save_document(), SK.Save),
             "save_as": a("Save &As…", lambda: self.save_document(save_as=True), "Ctrl+Shift+S"),
             "close": a("&Close", lambda: self.close_document(), SK.Close),
@@ -155,6 +165,8 @@ class MainWindow(QMainWindow):
             "delete_swatch": a("&Delete Swatch", self._delete_swatch, SK.Delete, icon="trash", tip="Delete Swatch"),
             "preferences": a("&Preferences…", self.show_preferences, "Ctrl+K"),
             "choose_fg": a("Choose &Foreground Color…", self._choose_foreground),
+            "sample_screen": a("Sample &Screen Color", self.sample_screen, "Shift+I", icon="eyedropper",
+                               tip="Pick a color from anywhere on screen (Shift+I)"),
             "swap_colors": a("S&wap Colors", self.state.swap_colors, "X"),
             "default_colors": a("&Default Colors", self.state.reset_colors, "D"),
             "add_fg": a("&Add Foreground to Palette", self._add_foreground, icon="plus", tip="New Swatch from Foreground Color"),
@@ -224,7 +236,7 @@ class MainWindow(QMainWindow):
         self.dock_manager.perspectiveOpened.connect(self._after_layout_change)
 
         self.panels = {
-            "color": ColorPanel(self.theme, self.state, self.actions["add_fg"]),
+            "color": ColorPanel(self.theme, self.state, self.actions["add_fg"], self.actions["sample_screen"]),
             "swatches": SwatchesPanel(self.theme, self.actions["add_fg"], self.actions["delete_swatch"]),
             "harmony": HarmonyPanel(self.theme, self.harmony, self.state, self.actions["add_harmony"]),
             "contrast": PlaceholderPanel(
@@ -260,15 +272,19 @@ class MainWindow(QMainWindow):
     def _create_home(self) -> QWidget:
         home = QWidget()
         home.setObjectName("home")
+        logo = QLabel()
+        logo.setPixmap(QIcon(str(LOGO)).pixmap(96, 96))
         title = QLabel("Colorize")
         title.setProperty("role", "title")
-        hint = QLabel("No palette is open")
+        hint = QLabel("No document is open")
         hint.setProperty("role", "muted")
         button = QPushButton("New Palette")
         button.setProperty("accent", True)
         button.clicked.connect(lambda: self.new_document())
         layout = QVBoxLayout(home)
         layout.addStretch(1)
+        layout.addWidget(logo, 0, Qt.AlignmentFlag.AlignHCenter)
+        layout.addSpacing(8)
         for widget in (title, hint, button):
             layout.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch(2)
@@ -300,7 +316,7 @@ class MainWindow(QMainWindow):
         A = self.actions
 
         file_menu = bar.addMenu("&File")
-        file_menu.addActions([A["new"], A["open"]])
+        file_menu.addActions([A["new"], A["open"], A["open_image"]])
         file_menu.addSeparator()
         file_menu.addActions([A["close"], A["save"], A["save_as"]])
         file_menu.addSeparator()
@@ -314,7 +330,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(A["preferences"])
 
         color_menu = bar.addMenu("&Color")
-        color_menu.addActions([A["choose_fg"], A["swap_colors"], A["default_colors"]])
+        color_menu.addActions([A["choose_fg"], A["sample_screen"], A["swap_colors"], A["default_colors"]])
 
         palette_menu = bar.addMenu("&Palette")
         palette_menu.addActions([A["add_fg"], A["add_harmony"], A["replace_swatch"], A["swatch_to_fg"]])
@@ -357,17 +373,34 @@ class MainWindow(QMainWindow):
         bar.addPermanentWidget(self.fg_label)
 
     # --------------------------------------------------------------- documents
+    # Tabs hold palettes (DocumentView) and images (ImageView). Palette commands act on
+    # the current tab when it is a palette, otherwise on the palette that was active
+    # last, so colors sampled from an image can go straight into it.
+
+    def current_tab(self) -> DocumentView | ImageView | None:
+        return self.doc_tabs.currentWidget()
 
     def current_view(self) -> DocumentView | None:
         widget = self.doc_tabs.currentWidget()
         return widget if isinstance(widget, DocumentView) else None
 
+    def current_image_view(self) -> ImageView | None:
+        widget = self.doc_tabs.currentWidget()
+        return widget if isinstance(widget, ImageView) else None
+
+    def _tabs(self) -> list:
+        return [self.doc_tabs.widget(i) for i in range(self.doc_tabs.count())]
+
+    def _palette_views(self) -> list[DocumentView]:
+        return [w for w in self._tabs() if isinstance(w, DocumentView)]
+
     def current_document(self) -> Document | None:
-        view = self.current_view()
-        return view.document if view else None
+        """The palette that palette commands act on (see above)."""
+        view = self.current_view() or self._target_view
+        return view.document if view is not None else None
 
     def documents(self) -> list[Document]:
-        return [self.doc_tabs.widget(i).document for i in range(self.doc_tabs.count())]
+        return [view.document for view in self._palette_views()]
 
     def new_document(self, sample: bool = False) -> Document:
         self._doc_counter += 1
@@ -378,7 +411,7 @@ class MainWindow(QMainWindow):
         self.undo_group.addStack(doc.undo_stack)
 
         view = DocumentView(doc, self.state, self.theme)
-        refresh = partial(self._on_document_edited, view)
+        refresh = partial(self._update_tab, view)
         view.zoomChanged.connect(refresh)
         doc.modifiedChanged.connect(refresh)
         doc.selectionChanged.connect(refresh)
@@ -389,57 +422,76 @@ class MainWindow(QMainWindow):
 
         index = self.doc_tabs.addTab(view, "")
         self.doc_tabs.setCurrentIndex(index)
-        self._on_document_edited(view)
+        self._update_tab(view)
         return doc
 
     def close_document(self, index: int | None = None) -> bool:
-        """Close a tab, asking to save unsaved changes. Returns False if the user cancelled."""
+        """Close a tab, asking to save unsaved palette changes. False if the user cancelled."""
         if index is None:
             index = self.doc_tabs.currentIndex()
-        view = self.doc_tabs.widget(index)
-        if not isinstance(view, DocumentView):
+        widget = self.doc_tabs.widget(index)
+        if widget is None:
             return True
-        if not self._confirm_discard(view.document):
+        if isinstance(widget, DocumentView) and not self._confirm_discard(widget.document):
             return False
-        self.doc_tabs.removeTab(self.doc_tabs.indexOf(view))
-        if self.doc_tabs.count() == 0:
-            self._on_current_document_changed(-1)
-        self.undo_group.removeStack(view.document.undo_stack)
-        view.deleteLater()
-        view.document.deleteLater()
+        self.doc_tabs.removeTab(self.doc_tabs.indexOf(widget))
+        if widget is self._target_view:
+            self._target_view = None
+        if isinstance(widget, DocumentView):
+            self.undo_group.removeStack(widget.document.undo_stack)
+            widget.document.deleteLater()
+        widget.deleteLater()
+        self._on_current_document_changed(self.doc_tabs.currentIndex())
         return True
 
     def _on_current_document_changed(self, _index: int) -> None:
+        current = self.current_view()
+        if current is not None:
+            self._target_view = current
+        elif self._target_view is None:
+            palettes = self._palette_views()
+            self._target_view = palettes[-1] if palettes else None
         doc = self.current_document()
         self.undo_group.setActiveStack(doc.undo_stack if doc else None)
         self.panels["swatches"].set_document(doc)
-        self.center.setCurrentIndex(0 if doc else 1)
+        self.center.setCurrentIndex(0 if self.doc_tabs.count() else 1)
         self._refresh_document_ui()
 
-    def _on_document_edited(self, view: DocumentView, *_args) -> None:
+    def _update_tab(self, view, *_args) -> None:
         index = self.doc_tabs.indexOf(view)
         if index < 0:
             return
-        doc = view.document
-        star = "*" if doc.is_modified else ""
-        self.doc_tabs.setTabText(index, f"{doc.palette.name}{star} @ {round(view.zoom * 100)}%")
-        self.doc_tabs.setTabToolTip(index, doc.path or "Not saved yet")
-        if view is self.current_view():
+        if isinstance(view, DocumentView):
+            star = "*" if view.document.is_modified else ""
+            self.doc_tabs.setTabToolTip(index, view.document.path or "Not saved yet")
+        else:
+            star = ""
+            self.doc_tabs.setTabToolTip(index, view.path)
+        self.doc_tabs.setTabText(index, f"{view.title}{star} @ {round(view.zoom * 100)}%")
+        if view is self.current_tab() or view is self._target_view:
             self._refresh_document_ui()
 
     def _refresh_document_ui(self) -> None:
         doc = self.current_document()
-        view = self.current_view()
-        has_doc = doc is not None
-        has_selection = has_doc and doc.selected >= 0
-        for key in ("close", "save", "save_as", "add_fg", "add_harmony", "rename_palette",
-                    "zoom_in", "zoom_out", "fit", "actual_size"):
-            self.actions[key].setEnabled(has_doc)
+        tab = self.current_tab()
+        image = self.current_image_view()
+        has_selection = doc is not None and doc.selected >= 0
+        for key in ("add_fg", "add_harmony", "rename_palette"):
+            self.actions[key].setEnabled(doc is not None)
+        for key in ("save", "save_as"):
+            self.actions[key].setEnabled(self.current_view() is not None)
+        for key in ("close", "zoom_in", "zoom_out", "fit", "actual_size"):
+            self.actions[key].setEnabled(tab is not None)
         for key in ("delete_swatch", "replace_swatch", "swatch_to_fg"):
             self.actions[key].setEnabled(has_selection)
-        self.setWindowTitle(f"{doc.palette.name} — Colorize" if has_doc else "Colorize")
-        self.zoom_label.setText(f"{round(view.zoom * 100)}%" if view else "")
-        if has_doc:
+        self.setWindowTitle(f"{tab.title} — Colorize" if tab is not None else "Colorize")
+        self.zoom_label.setText(f"{round(tab.zoom * 100)}%" if tab is not None else "")
+        if image is not None:
+            text = image.info.text()
+            if doc is not None:
+                text += f"  ·  adding to “{doc.palette.name}”"
+            self.info_label.setText(text)
+        elif doc is not None:
             n = len(doc.palette)
             text = f"{n} swatch" + ("" if n == 1 else "es")
             if has_selection:
@@ -449,9 +501,9 @@ class MainWindow(QMainWindow):
             self.info_label.setText("")
 
     def _with_view(self, method: str) -> None:
-        view = self.current_view()
-        if view:
-            getattr(view, method)()
+        tab = self.current_tab()
+        if tab is not None:
+            getattr(tab, method)()
 
     # ------------------------------------------------------------------ files
 
@@ -461,19 +513,34 @@ class MainWindow(QMainWindow):
     def _remember_dir(self, path: str) -> None:
         self.settings.setValue("files/lastDir", str(Path(path).parent))
 
-    def open_file(self, path: str | None = None) -> Document | None:
+    def _find_tab(self, path: str):
+        target = os.path.normcase(os.path.abspath(path))
+        for widget in self._tabs():
+            own = widget.document.path if isinstance(widget, DocumentView) else widget.path
+            if own and os.path.normcase(os.path.abspath(own)) == target:
+                return widget
+        return None
+
+    def open_file(self, path: str | None = None):
+        """Open a palette (.json) or an image, by dialog or path. Returns the Document,
+        the ImageView, or None."""
         if path is None:
+            images = " ".join(f"*{suffix}" for suffix in IMAGE_SUFFIXES)
             path, _ = QFileDialog.getOpenFileName(
-                self, "Open Palette", self._last_dir(), f"{colorize_json.FILE_FILTER};;All Files (*)"
+                self,
+                "Open",
+                self._last_dir(),
+                f"All Supported (*{colorize_json.SUFFIX} {images});;{colorize_json.FILE_FILTER};;"
+                f"Images ({images});;All Files (*)",
             )
             if not path:
                 return None
-        target = os.path.normcase(os.path.abspath(path))
-        for i in range(self.doc_tabs.count()):
-            doc = self.doc_tabs.widget(i).document
-            if doc.path and os.path.normcase(os.path.abspath(doc.path)) == target:
-                self.doc_tabs.setCurrentIndex(i)
-                return doc
+        if Path(path).suffix.lower() in IMAGE_SUFFIXES:
+            return self.open_image(path)
+        existing = self._find_tab(path)
+        if existing is not None:
+            self.doc_tabs.setCurrentWidget(existing)
+            return existing.document
         try:
             name, colors = colorize_json.loads(Path(path).read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, colorize_json.PaletteFormatError) as exc:
@@ -482,12 +549,72 @@ class MainWindow(QMainWindow):
         doc = self._add_document(Palette(name, colors))
         doc.path = str(Path(path))
         self._remember_dir(path)
-        self._on_document_edited(self.current_view())
+        self._update_tab(self.current_view())
         return doc
+
+    def open_image(self, path: str | None = None) -> ImageView | None:
+        if path is None:
+            images = " ".join(f"*{suffix}" for suffix in IMAGE_SUFFIXES)
+            path, _ = QFileDialog.getOpenFileName(self, "Open Image", self._last_dir(), f"Images ({images})")
+            if not path:
+                return None
+        existing = self._find_tab(path)
+        if existing is not None:
+            self.doc_tabs.setCurrentWidget(existing)
+            return existing
+        try:
+            image = load_image(path)
+        except ImageLoadError as exc:
+            QMessageBox.warning(self, "Open Image", f"Could not open “{Path(path).name}”:\n{exc}")
+            return None
+        view = ImageView(path, image, self.state, self.theme)
+        view.zoomChanged.connect(partial(self._update_tab, view))
+        view.createPaletteRequested.connect(self._palette_from_colors)
+        view.addToPaletteRequested.connect(self._add_colors_to_palette)
+        self.doc_tabs.setCurrentIndex(self.doc_tabs.addTab(view, ""))
+        self._update_tab(view)
+        self._remember_dir(path)
+        return view
+
+    def _palette_from_colors(self, name: str, colors: list) -> Document:
+        doc = self._add_document(Palette(name))
+        doc.add_colors(colors, "Extract from Image")  # undoable, and marks the palette unsaved
+        return doc
+
+    def _add_colors_to_palette(self, colors: list) -> None:
+        doc = self.current_document()
+        if doc is None:
+            self._palette_from_colors("Untitled", colors)
+            return
+        doc.add_colors(colors, "Add Image Colors")
+        self.statusBar().showMessage(f"Added {len(colors)} colors to “{doc.palette.name}”", 4000)
+
+    def sample_screen(self) -> None:
+        self.screen_sampler.start(self.state.sample_size)
+
+    @staticmethod
+    def _dropped_paths(mime) -> list[str]:
+        accepted = IMAGE_SUFFIXES + (colorize_json.SUFFIX,)
+        return [
+            url.toLocalFile()
+            for url in mime.urls()
+            if url.isLocalFile() and Path(url.toLocalFile()).suffix.lower() in accepted
+        ]
+
+    def dragEnterEvent(self, event) -> None:
+        if self._dropped_paths(event.mimeData()):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        paths = self._dropped_paths(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            for path in paths:
+                self.open_file(path)
 
     def save_document(self, doc: Document | None = None, save_as: bool = False) -> bool:
         """Save (or Save As). Returns False if cancelled or failed."""
-        doc = doc or self.current_document()
+        doc = doc or (self.current_view().document if self.current_view() else None)
         if doc is None:
             return False
         path = doc.path
@@ -507,9 +634,9 @@ class MainWindow(QMainWindow):
         doc.path = str(Path(path))
         doc.undo_stack.setClean()
         self._remember_dir(path)
-        for i in range(self.doc_tabs.count()):
-            if self.doc_tabs.widget(i).document is doc:
-                self._on_document_edited(self.doc_tabs.widget(i))
+        for view in self._palette_views():
+            if view.document is doc:
+                self._update_tab(view)
         self.statusBar().showMessage(f"Saved {doc.path}", 4000)
         return True
 
@@ -534,9 +661,9 @@ class MainWindow(QMainWindow):
         """True when it is fine to drop ``doc``: unmodified, saved now, or discarded."""
         if not doc.is_modified:
             return True
-        for i in range(self.doc_tabs.count()):
-            if self.doc_tabs.widget(i).document is doc:
-                self.doc_tabs.setCurrentIndex(i)
+        for view in self._palette_views():
+            if view.document is doc:
+                self.doc_tabs.setCurrentWidget(view)
         answer = self.ask_save_changes(doc)
         if answer == "save":
             return self.save_document(doc)
@@ -812,12 +939,15 @@ class MainWindow(QMainWindow):
         PreferencesDialog(self.theme, self).exec()
 
     def _show_about(self) -> None:
-        QMessageBox.about(
-            self,
-            "About Colorize",
-            f"<b>Colorize</b> {__version__}<br>Offline color manager.<br><br>"
-            "Interface font: Source Sans 3 (SIL Open Font License).",
+        box = QMessageBox(self)
+        box.setWindowTitle("About Colorize")
+        box.setIconPixmap(QIcon(str(LOGO)).pixmap(72, 72))
+        box.setText(f"<b>Colorize</b> {__version__}")
+        box.setInformativeText(
+            "Offline color manager.<br><br>MIT License.<br>"
+            "Interface font: Source Sans 3 (SIL Open Font License)."
         )
+        box.exec()
 
     # --------------------------------------------------------------- settings
 

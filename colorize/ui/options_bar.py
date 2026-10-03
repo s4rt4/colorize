@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from colorize.model.app_state import EXTRACT_COUNT_RANGE, SAMPLE_SIZES
 from colorize.ui.harmony_panel import rule_combo
 from colorize.ui.tools import TOOLS
 
@@ -81,21 +82,41 @@ class OptionsBar(QWidget):
         severity.setRange(0, 100)
         severity.setValue(100)
         severity.setFixedWidth(120)
+        sample_size = _combo("Point Sample", "3 by 3 Average", "5 by 5 Average")
+        sample_size.setCurrentIndex(SAMPLE_SIZES.index(state.sample_size))
+        sample_size.currentIndexChanged.connect(lambda i: state.set_sample_size(SAMPLE_SIZES[i]))
+        state.sampleSizeChanged.connect(lambda size: sample_size.setCurrentIndex(SAMPLE_SIZES.index(size)))
+        sample_screen = QPushButton("Sample Screen…")
+        sample_screen.setToolTip("Pick a color from anywhere on screen (Shift+I)")
+        sample_screen.clicked.connect(actions["sample_screen"].trigger)
+
         count = QSpinBox()
-        count.setRange(2, 16)
-        count.setValue(5)
+        count.setRange(*EXTRACT_COUNT_RANGE)
+        count.setValue(state.extract_count)
+        count.valueChanged.connect(state.set_extract_count)
+        state.extractCountChanged.connect(count.setValue)
+        open_image = QPushButton("Open Image…")
+        open_image.clicked.connect(actions["open_image"].trigger)
 
         pages = {
             "select": _row(_hint("Click a swatch to select it · drag to reorder · double-click to make it the foreground color")),
             "eyedropper": _row(
-                "Sample Size:", _disabled(_combo("Point Sample", "3 by 3 Average", "5 by 5 Average")), _badge("M2")
+                "Sample Size:",
+                sample_size,
+                sample_screen,
+                _hint("Click an image or swatch to set the foreground color"),
             ),
             "harmony": _row(
                 "Rule:",
                 rule_combo(harmony),
                 _hint("Drag any handle on the Harmony wheel to rotate the set · click a result to make it the foreground"),
             ),
-            "extract": _row("Colors:", _disabled(count), _badge("M2")),
+            "extract": _row(
+                "Colors:",
+                count,
+                open_image,
+                _hint("Or drop an image on the window · drag a marker on the image to re-sample it"),
+            ),
             "contrast": _row(
                 "Algorithm:", _disabled(_combo("WCAG 2.x", "APCA")), "Target:", _disabled(_combo("AA", "AAA")), _badge("M3")
             ),
