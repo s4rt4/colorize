@@ -112,3 +112,40 @@ dan perbaikan yang dibuat.
 Perbaikan di-commit ke branch `linux-support`. Pastikan
 `.venv/bin/python -m pytest -q` tetap lulus sebelum push, lalu push dan pastikan CI hijau.
 Penggabungan ke `main` dan rilis dilakukan oleh pemilik repo.
+
+## Hasil
+
+Lingkungan: **Debian 13 (trixie), XFCE 4.20, X11 (lightdm), layar tunggal 1366×768**; Python 3.13.5,
+PyQt6 6.11.0, ghostscript 10.05.1. `pytest -q`: 341 passed, 9 skipped (sama seperti CI).
+Jalur portal Wayland tidak dapat diuji di mesin ini karena hanya ada sesi X11; logika portal
+tetap tercakup tes CI (portal tiruan).
+
+1. **Ambil warna dari layar (Shift+I): lulus.** Overlay layar beku + kaca pembesar tampil;
+   klik pada jendela aplikasi lain berisi #FF0000 → warna depan menjadi **#FF0000** (selisih
+   0 per kanal, terverifikasi lewat panel Color: Hex/RGB 255,0,0). Esc membatalkan tanpa
+   mengubah state. Tidak ada file tangkapan layar tertinggal di `~/Pictures`. Jalur X11
+   `grabWindow` tanpa dialog izin.
+2. **Tampilan dan panel docking: lulus.** Shift+F1/F2 mengganti tema ke arah yang benar
+   (diverifikasi per-piksel: dark → gray → light → gray); Window › Workspace berganti
+   Essentials ↔ Palette dengan tata letak benar; Tab menyembunyikan/menampilkan panel;
+   panel Swatches lepas menjadi jendela terapung dan ter-dock kembali melalui drop overlay
+   Qt Ads. Tidak ada masalah docking untuk dicatat (sesi X11).
+3. **Panel Print: lulus.** Daftar Profile memuat profil CMYK dari ghostscript
+   ("Artifex CMYK SWOP Profile", "Artifex PS CMYK Profile") plus profil standar
+   (FOGRA27L/28L/29L/30L/39L/40L/45L/47L, GRACoL, IFRA26S, SNAP, SWOP) dan
+   "Approximate (no profile)" tetap ada. Catatan kosmetik: "Artifex PS CMYK Profile"
+   tampil dua kali (deskripsi dua berkas .icc ghostscript yang sama).
+4. **Build dan pemasangan: lulus.** `tools/build.py` menghasilkan
+   `dist/Colorize-0.2.0-linux-x86_64.tar.gz` (66 MB) dan smoke test berjalan di layar
+   sungguhan: first launch 4,37 s, warm 5,07/5,14 s, buka foto P3 + `.ase` Lab OK
+   (catatan: "warm start budget 3 s: OVER BUDGET" — bukan kegagalan, hanya melewati
+   anggaran). `install.sh` memasang entri menu + ikon; `desktop-file-validate` valid
+   (hint: Categories berisi dua kategori utama "Graphics;Development"); `gtk-launch
+   colorize` menjalankan aplikasi terpasang; `--uninstall` menghapus entri menu dan ikon
+   dengan bersih. Uji "Open With" penuh di file manager tidak dijalankan (perlu klik
+   kanan manual); MimeType image/png, image/jpeg, dst. sudah terdaftar di
+   `colorize.desktop`.
+5. **Lokasi data: lulus.** Pengaturan di `~/.config/Colorize/Colorize.ini`; library
+   (`library.sqlite`) dan log (`colorize.log`) di `~/.local/share/Colorize/Colorize/`.
+
+Tidak ada perbaikan kode yang diperlukan; seluruh pemeriksaan lulus di sesi X11.
