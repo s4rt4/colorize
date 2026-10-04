@@ -148,4 +148,11 @@ tetap tercakup tes CI (portal tiruan).
 5. **Lokasi data: lulus.** Pengaturan di `~/.config/Colorize/Colorize.ini`; library
    (`library.sqlite`) dan log (`colorize.log`) di `~/.local/share/Colorize/Colorize/`.
 
+**Tambahan (diminta setelah serah-terima): paket `.deb`.** `tools/build_deb.sh` membangun
+`dist/Colorize-0.2.0-linux-x86_64.deb` (payload `/opt/colorize`, `.desktop` + ikon ke
+`/usr/share`, symlink `/usr/bin/colorize`, `Depends` sesuai README, `Recommends:
+ghostscript`) dan paketnya dilampirkan ke release `v0.2.0`. Uji lokal: `dpkg -i` bersih,
+smoke test dari `/opt` 2,6 s (di bawah anggaran), `gtk-launch colorize` normal,
+`dpkg -r colorize` bersih. README bagian *Linux* diperbarui.
+
 Tidak ada perbaikan kode yang diperlukan; seluruh pemeriksaan lulus di sesi X11.

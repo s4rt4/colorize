@@ -62,6 +62,11 @@ Qt needs a few system libraries the wheels don't carry; on Debian/Ubuntu:
 - Build: `.venv/bin/python tools/build.py` (needs `pyinstaller`) gives
   `dist/Colorize-<version>-linux-x86_64.tar.gz`. Unpack it anywhere and run
   `Colorize/install.sh` for a menu entry and icon (`--uninstall` removes them).
+- Or a Debian package: `.venv/bin/python tools/build.py --no-zip` then `tools/build_deb.sh`
+  gives `dist/Colorize-<version>-linux-<arch>.deb`. Install with
+  `sudo dpkg -i dist/Colorize-<version>-linux-<arch>.deb` (pulls in the Qt libraries
+  above; `ghostscript` is recommended for CMYK profiles), remove with
+  `sudo dpkg -r colorize`.
 - Settings live in `~/.config/Colorize`, the library and log in `~/.local/share/Colorize/Colorize`.
 - Print panel: CMYK ICC profiles are found in the XDG icc folders (`~/.local/share/icc`,
   `/usr/share/color/icc`, including package subfolders). Distros ship few; `ghostscript`
